@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ==============================
 # User-editable defaults (can be overridden here)
 # ==============================
@@ -11,13 +13,13 @@ VM_MEMORY="${VM_MEMORY:-4096}"             # MB
 VM_DISK_SIZE="${VM_DISK_SIZE:-32768}"      # MB
 VM_NETWORK_TYPE="${VM_NETWORK_TYPE:-nat}"  # nat | bridged
 VM_BASE_PATH="${VM_BASE_PATH:-/home/dlesieur/VMS}"
-ISO_PATH="${ISO_PATH:-/Downloads/rhel-9.4-x86_64-dvd.iso}" # Adjust to your ISO
+ISO_PATH="${ISO_PATH:-/home/dlesieur/Downloads/rhel-10.0-x86_64-dvd.iso}" # Fixed: single valid path, absolute
 HOST_SSH_PORT="${HOST_SSH_PORT:-4242}"
 GUEST_SSH_PORT="${GUEST_SSH_PORT:-22}"
 HOST_HTTP_PORT="${HOST_HTTP_PORT:-8080}"
 GUEST_HTTP_PORT="${GUEST_HTTP_PORT:-80}"
 VM_HOSTNAME="${VM_HOSTNAME:-dlesieur}"
-KS_FILE_PATH="${KS_FILE_PATH:-$(pwd)/ks.cfg}"  # RHEL Kickstart, not Debian preseed
+KS_FILE_PATH="${KS_FILE_PATH:-$(pwd)/ks.cfg}"  # Changed from preset-ks.cfg to ks.cfg
 AUTO_START_HTTP="${AUTO_START_HTTP:-false}"     # true|false
 BRIDGE_ADAPTER="${BRIDGE_ADAPTER:-}"           # Required only if VM_NETWORK_TYPE=bridged
 
@@ -35,6 +37,51 @@ print_header()
 die() { echo "Error: $*" >&2; exit 1; }
 log() { echo "[*] $*"; }
 
+cleanup_vm() {
+    local vm_name="$1"
+    log "Cleaning up VM state for: $vm_name"
+    
+    # Try to power off if running
+    VBoxManage controlvm "$vm_name" poweroff 2>/dev/null || true
+    sleep 2
+    
+    # Remove saved state if any
+    VBoxManage discardstate "$vm_name" 2>/dev/null || true
+    
+    # Unregister and delete
+    VBoxManage unregistervm "$vm_name" --delete 2>/dev/null || true
+    
+    # Clean up any orphaned VDI files
+    if [ -d "$VM_BASE_PATH/$vm_name" ]; then
+        rm -rf "$VM_BASE_PATH/$vm_name"
+    fi
+    
+    # Clean up boot ISOs
+    rm -f "$VM_BASE_PATH/kickstart-boot.iso"
+}
+
+# Create an auto-boot ISO with embedded Kickstart boot params
+create_autoboot_iso() {
+    log "Creating automated boot ISO with Kickstart..."
+    local auto_iso="$VM_BASE_PATH/rhel-auto-ks.iso"
+    local ks_url="http://10.0.2.2:$HOST_HTTP_PORT/$(basename "$KS_FILE_PATH")"
+
+    # Reuse if newer than ks.cfg
+    if [ -f "$auto_iso" ] && [ "$auto_iso" -nt "$KS_FILE_PATH" ]; then
+        log "Using existing auto-boot ISO: $auto_iso"
+        echo "$auto_iso"
+        return 0
+    fi
+
+    if bash "$SCRIPT_DIR/create_boot_iso.sh" "$ISO_PATH" "$(basename "$KS_FILE_PATH")" "$auto_iso" "$ks_url"; then
+        log "Auto-boot ISO created: $auto_iso"
+        echo "$auto_iso"
+    else
+        log "Warning: Auto-boot ISO build failed, falling back to original ISO"
+        echo "$ISO_PATH"
+    fi
+}
+
 trap 'echo "An unexpected error occurred. Aborting." >&2' ERR
 
 # ==============================
@@ -50,7 +97,8 @@ if VBoxManage showvminfo "$VM_NAME" &>/dev/null; then
     read -r -p "VM '$VM_NAME' already exists. Delete and recreate (y/n): " confirm
     if [[ $confirm =~ ^[yY]$ ]]; then
         log "Removing existing VM..."
-        VBoxManage unregistervm "$VM_NAME" --delete
+        cleanup_vm "$VM_NAME"
+        sleep 2  # Give VirtualBox time to release resources
     else
         echo "Exiting without changes."
         exit 0
@@ -64,12 +112,14 @@ log "Configuring VM hardware..."
 VBoxManage modifyvm "$VM_NAME" \
     --memory "$VM_MEMORY" \
     --cpus "$VM_CPUS" \
-    --vram 32 \
+    --vram 16 \
     --ioapic on \
     --acpi on \
     --rtcuseutc on \
     --chipset ich9 \
-    --graphicscontroller vmsvga
+    --graphicscontroller vboxvga \
+    --uart1 0x3F8 4 \
+    --uartmode1 file /tmp/vbox-${VM_NAME}-serial.log
 
 # Networking
 if [[ "$VM_NETWORK_TYPE" == "bridged" ]]; then
@@ -88,15 +138,24 @@ VBoxManage createmedium disk --filename "$VM_DISK_PATH" --size "$VM_DISK_SIZE" -
 # SATA for disk
 VBoxManage storagectl "$VM_NAME" --name "SATA Controller" --add sata --controller IntelAhci
 VBoxManage storageattach "$VM_NAME" --storagectl "SATA Controller" --port 0 --device 0 --type hdd --medium "$VM_DISK_PATH"
-# IDE for DVD
+# IDE for DVD - attach auto-boot ISO (fallback to original on failure)
 VBoxManage storagectl "$VM_NAME" --name "IDE Controller" --add ide --controller PIIX4
-VBoxManage storageattach "$VM_NAME" --storagectl "IDE Controller" --port 0 --device 0 --type dvddrive --medium "$ISO_PATH"
+AUTO_ISO="$(create_autoboot_iso 2>/dev/null || echo "$ISO_PATH")"
+if [ ! -f "$AUTO_ISO" ]; then
+    log "Auto-boot ISO not found or failed, falling back to original ISO."
+    AUTO_ISO="$ISO_PATH"
+    echo "WARNING: You will need to manually edit GRUB and add the kernel parameters for Kickstart."
+fi
+log "Using ISO: $AUTO_ISO"
+VBoxManage storageattach "$VM_NAME" --storagectl "IDE Controller" --port 0 --device 0 --type dvddrive --medium "$AUTO_ISO"
 
 # ==============================
 # Optional performance/UX tweaks
 # ==============================
-log "Optimizing VM (disable audio/USB, clipboard/drag&drop disabled)..."
-VBoxManage modifyvm "$VM_NAME" --audio none --usb off --clipboard disabled --draganddrop disabled
+log "Optimizing VM (disable audio/USB/GUI, clipboard/drag&drop disabled)..."
+VBoxManage modifyvm "$VM_NAME" --audio-driver none --usb off --clipboard disabled --draganddrop disabled
+# Enable VRDE for remote console access (instead of --vrde off)
+VBoxManage modifyvm "$VM_NAME" --vrde on --vrdeport 3389 --vrdeaddress 127.0.0.1
 
 # ==============================
 # NAT port forwarding (only if NAT)
@@ -119,42 +178,24 @@ fi
 VBoxManage modifyvm "$VM_NAME" --boot1 dvd --boot2 disk --boot3 none --boot4 none
 
 # ==============================
-# RHEL Kickstart guidance
-# ==============================
-print_header "RHEL Kickstart (Automated Install)"
-# Detect a likely host IP (to serve ks.cfg)
-HOST_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}')"
-HOST_IP="${HOST_IP:-127.0.0.1}"
-
-echo "To automate the RHEL installation with Kickstart:"
-echo "1) Place your Kickstart file at: $KS_FILE_PATH"
-echo "   Minimal example references: https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html-single/performing_an_advanced_rhel_9_installation/index#kickstart-reference"
-echo "		> All kickstart scripts and the log files of their execution are storied in the /tmp directory to assist installation failures"
-echo "2) Serve it over HTTP (from its directory):"
-echo "   cd \"$(dirname "$KS_FILE_PATH")\" && python3 -m http.server $HOST_HTTP_PORT"
-echo ""
-echo "3) At the installer boot menu (from the ISO), press 'e' (or Tab) to edit kernel params and append:"
-echo "   inst.ks=http://$HOST_IP:$HOST_HTTP_PORT/$(basename "$KS_FILE_PATH") inst.text"
-echo "   Optional console for headless: console=ttyS0,115200n8"
-echo ""
-echo "4) Set the VM hostname during install or via Kickstart. Current setting: $VM_HOSTNAME"
-echo ""
-
-# Optional: start HTTP server automatically
-if [[ "$AUTO_START_HTTP" == "true" ]]; then
-    log "Attempting to auto-start HTTP server on $HOST_IP:$HOST_HTTP_PORT serving $(dirname "$KS_FILE_PATH")"
-    (cd "$(dirname "$KS_FILE_PATH")" && python3 -m http.server "$HOST_HTTP_PORT" >/dev/null 2>&1 &)
-    echo "HTTP server started in background."
-fi
-
-# ==============================
 # Final instructions
 # ==============================
 echo "VM created successfully at: $VM_HOME_DIR"
-echo "Start the VM with: VBoxManage startvm \"$VM_NAME\" --type gui"
-echo "Headless:          VBoxManage startvm \"$VM_NAME\" --type headless"
+echo ""
+echo "AUTOMATED INSTALLATION:"
+echo "  For the first boot, start the VM with GUI to see the GRUB menu:"
+echo "    VBoxManage startvm \"$VM_NAME\" --type gui"
+echo "  Use VNC if you prefer, but GUI is more reliable for server ISOs."
+echo ""
+echo "  At the GRUB menu, press 'e' and add to the linux/linuxefi line:"
+echo "    inst.ks=http://10.0.2.2:$HOST_HTTP_PORT/$(basename "$KS_FILE_PATH") inst.text console=ttyS0,115200n8"
+echo "  Press Ctrl+X to boot."
+echo ""
+echo "  After installation, you can use headless mode:"
+echo "    VBoxManage startvm \"$VM_NAME\" --type headless"
 echo ""
 if [[ "$VM_NETWORK_TYPE" == "nat" ]]; then
-    echo "SSH (after install): ssh -p $HOST_SSH_PORT user@$HOST_IP"
-    echo "HTTP (guest:$GUEST_HTTP_PORT): http://$HOST_IP:$HOST_HTTP_PORT/"
+    echo "After installation:"
+    echo "  SSH: ssh -p $HOST_SSH_PORT dlesieur@localhost"
+    echo "  Password: tempuser123 (change after first login)"
 fi
