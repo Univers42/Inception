@@ -21,6 +21,9 @@ services:
       DOMAIN_NAME: ${DOMAIN_NAME}
       CERTS_CRT: ${CERTS_CRT}
       CERTS_KEY: ${CERTS_KEY}
+    secrets:
+      - ca_key
+      - ca_crt
 
   # ── WordPress + php-fpm ────────────────────────────────────────────
   wordpress:
@@ -97,3 +100,7 @@ secrets:
     file: ../secrets/db_root_password.txt
   credentials:
     file: ../secrets/credentials.txt
+  ca_key:
+    file: ../secrets/ca.key
+  ca_crt:
+    file: ../secrets/ca.crt
