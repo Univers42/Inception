@@ -1,0 +1,16 @@
+# Secrets (NEVER commit)
+secrets/
+
+# Environment file with real values
+srcs/.env
+
+# Host data volumes
+/home/*/data/
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
