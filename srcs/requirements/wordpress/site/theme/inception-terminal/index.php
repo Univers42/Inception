@@ -1,6 +1,6 @@
 <?php
 /**
- * Journal archive (posts page) + generic fallback listing.
+ * Journal archive v2 — the full log stream.
  */
 get_header();
 ?>
@@ -8,23 +8,25 @@ get_header();
 <section class="archive">
 	<div class="shell shell-narrow">
 		<header class="archive-head">
-			<h1 class="section-title"><span class="section-prompt">$</span> ls -lt ./journal</h1>
+			<h1 class="section-title"><span class="section-prompt">$</span> tail -f journal.log</h1>
 			<p class="archive-sub">Engineering journal — the build, the bugs, the numbers.</p>
 		</header>
 
 		<?php if ( have_posts() ) : ?>
-			<div class="journal-list journal-list-full">
+			<div class="loglist loglist-full">
 				<?php
 				while ( have_posts() ) :
 					the_post();
 					?>
-				<article <?php post_class( 'journal-card' ); ?>>
-					<h2 class="journal-card-title">
-						<a href="<?php the_permalink(); ?>"><span class="journal-card-prefix">$ cat</span> <?php the_title(); ?></a>
-					</h2>
-					<?php inception_terminal_post_meta(); ?>
-					<p class="journal-card-excerpt"><?php echo esc_html( get_the_excerpt() ); ?></p>
-				</article>
+				<a class="logline logline-rich" href="<?php the_permalink(); ?>">
+					<span class="log-ts"><?php echo esc_html( get_the_date( 'Y-m-d\TH:i' ) ); ?></span>
+					<span class="log-level" aria-hidden="true">[post]</span>
+					<span class="log-body">
+						<span class="log-title"><?php the_title(); ?></span>
+						<span class="log-excerpt"><?php echo esc_html( get_the_excerpt() ); ?></span>
+					</span>
+					<span class="log-meta"><?php echo function_exists( 'inception_kit_reading_time' ) ? (int) inception_kit_reading_time() . ' min' : ''; ?></span>
+				</a>
 				<?php endwhile; ?>
 			</div>
 			<nav class="pager" aria-label="Posts navigation">

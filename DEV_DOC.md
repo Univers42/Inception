@@ -479,8 +479,10 @@ srcs/requirements/wordpress/site/
 ├── plugin/inception-kit/         # reusable PHP components: [term_window] [cmd] [out]
 │                                 #   [callout] [stats] [arch] [kbd] [badge] + helpers (icons,
 │                                 #   prompt, reading time) reused by the theme
-├── theme/inception-terminal/     # "Phosphor Terminal" — dark, all-monospace, system fonts,
-│                                 #   no external assets, WCAG AA palette, reduced-motion safe
+├── theme/inception-terminal/     # v2 "the page is one shell session" — figlet hero,
+│                                 #   ls -la docs index, log-stream journal, serif reading
+│                                 #   voice for prose, system fonts only, WCAG AA,
+│                                 #   reduced-motion safe, zero external assets
 └── content/                      # seed content: 5 doc pages + 4 journal posts (HTML + shortcodes)
 ```
 
@@ -489,6 +491,14 @@ srcs/requirements/wordpress/site/
   truth). Content pages are seeded **once** (marker option
   `inception_site_seeded`); to re-seed:
   `docker exec wordpress wp --allow-root option delete inception_site_seeded && make restart`.
+- **Writing from wp-admin (the normal way):** WordPress *is* the authoring
+  interface — any page/post written in the block editor renders in the shell UI
+  automatically. The kit components are insertable as **block patterns**
+  (inserter → Patterns → *Inception Kit*: command, output, terminal window,
+  callouts, stat tiles, diagram), the editor canvas itself is themed dark
+  terminal (`editor.css`), and the theme palette is exposed as colour swatches.
+  Admin-created pages are added to the nav via *Appearance → Menus*; the seeder
+  never touches content it didn't create.
 - **Boot cost:** the whole provisioning runs in a single PHP process — a fresh
   first boot including full seeding measures ~7s, same as before the site existed.
 - **Failure isolation:** the entrypoint calls `install.sh` non-fatally; a broken

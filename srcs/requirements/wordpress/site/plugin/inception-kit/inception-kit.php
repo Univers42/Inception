@@ -11,11 +11,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'INCEPTION_KIT_VERSION', '1.0.0' );
+define( 'INCEPTION_KIT_VERSION', '1.1.0' );
 define( 'INCEPTION_KIT_URL', plugin_dir_url( __FILE__ ) );
 define( 'INCEPTION_KIT_DIR', plugin_dir_path( __FILE__ ) );
 
 require_once INCEPTION_KIT_DIR . 'shortcodes.php';
+require_once INCEPTION_KIT_DIR . 'patterns.php';
 
 /**
  * Front-end assets for the kit components.

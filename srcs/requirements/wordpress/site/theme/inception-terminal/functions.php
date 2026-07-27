@@ -7,13 +7,30 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'INCEPTION_TERMINAL_VERSION', '1.0.0' );
+define( 'INCEPTION_TERMINAL_VERSION', '2.0.0' );
 
 function inception_terminal_setup() {
 	add_theme_support( 'title-tag' );
 	add_theme_support( 'automatic-feed-links' );
 	add_theme_support( 'html5', array( 'search-form', 'gallery', 'caption', 'style', 'script', 'navigation-widgets' ) );
 	register_nav_menus( array( 'primary' => 'Primary Menu' ) );
+
+	// Writing in wp-admin mirrors the site: dark terminal editor canvas
+	// + the theme palette exposed as editor colour swatches.
+	add_theme_support( 'editor-styles' );
+	add_editor_style( 'assets/editor.css' );
+	add_theme_support(
+		'editor-color-palette',
+		array(
+			array( 'name' => 'Phosphor green', 'slug' => 'ink-green', 'color' => '#4ae383' ),
+			array( 'name' => 'Amber',          'slug' => 'ink-amber', 'color' => '#ffb454' ),
+			array( 'name' => 'Cyan',           'slug' => 'ink-cyan',  'color' => '#5ccfe6' ),
+			array( 'name' => 'Red',            'slug' => 'ink-red',   'color' => '#ff6b6b' ),
+			array( 'name' => 'Foreground',     'slug' => 'ink-fg',    'color' => '#c9d4e3' ),
+			array( 'name' => 'Dim',            'slug' => 'ink-dim',   'color' => '#8395ab' ),
+			array( 'name' => 'Background',     'slug' => 'ink-bg',    'color' => '#0b0e14' ),
+		)
+	);
 }
 add_action( 'after_setup_theme', 'inception_terminal_setup' );
 

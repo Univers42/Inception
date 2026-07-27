@@ -1,0 +1,87 @@
+/* ══════════════════════════════════════════════════════════════════
+   Inception Terminal — Gutenberg editor canvas.
+   Writing in wp-admin looks like the site: dark, monospace, phosphor.
+   ══════════════════════════════════════════════════════════════════ */
+
+body {
+	background: #0b0e14;
+	color: #c9d4e3;
+	font-family: "JetBrains Mono", "Cascadia Mono", "Fira Code",
+		ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+	font-size: 16px;
+	line-height: 1.7;
+}
+
+.editor-styles-wrapper h1,
+.editor-styles-wrapper h2,
+.editor-styles-wrapper h3,
+.editor-styles-wrapper h4 {
+	color: #c9d4e3;
+	font-family: inherit;
+	font-weight: 700;
+}
+.editor-styles-wrapper h2::before { content: "## "; color: #4ae383; }
+.editor-styles-wrapper h3::before { content: "### "; color: #5c6b80; }
+
+.editor-styles-wrapper a { color: #5ccfe6; }
+
+.editor-styles-wrapper .wp-block-post-title {
+	color: #4ae383;
+	font-family: inherit;
+	text-shadow: 0 0 18px rgba(74, 227, 131, 0.28);
+}
+.editor-styles-wrapper .wp-block-post-title::before { content: "$ "; color: #4ae383; }
+
+.editor-styles-wrapper code {
+	background: #141a25;
+	border: 1px solid #1e2836;
+	border-radius: 4px;
+	padding: 0.1em 0.4em;
+	color: #ffb454;
+	font-family: inherit;
+}
+
+.editor-styles-wrapper pre,
+.editor-styles-wrapper .wp-block-code {
+	background: #080b10;
+	border: 1px solid #1e2836;
+	border-radius: 4px;
+	color: #c9d4e3;
+	font-family: inherit;
+}
+
+.editor-styles-wrapper blockquote,
+.editor-styles-wrapper .wp-block-quote {
+	border-left: 3px solid #4ae383;
+	background: #10151e;
+	padding: 0.5em 1em;
+	margin: 1.5em 0;
+	font-style: normal;
+}
+
+.editor-styles-wrapper table {
+	border-collapse: collapse;
+	font-size: 0.875em;
+}
+.editor-styles-wrapper th,
+.editor-styles-wrapper td {
+	border: 1px solid #1e2836;
+	padding: 0.55em 0.85em;
+}
+.editor-styles-wrapper th { background: #141a25; color: #4ae383; }
+
+/* shortcode blocks: make the component source readable, terminal-style */
+.editor-styles-wrapper .wp-block-shortcode {
+	background: #10151e;
+	border: 1px dashed #2a3648;
+	border-radius: 4px;
+	color: #c9d4e3;
+	font-family: inherit;
+}
+.editor-styles-wrapper .wp-block-shortcode textarea {
+	background: transparent;
+	color: #4ae383;
+	font-family: inherit;
+}
+
+::selection { background: #4ae383; color: #080b10; }
