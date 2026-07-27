@@ -1,10 +1,19 @@
 # ── Inception ─────────────────────────────────────────────────────────
-export DOCKER_BUILDKIT   = 1
+export DOCKER_BUILDKIT          = 1
 export COMPOSE_DOCKER_CLI_BUILD = 1
+export COMPOSE_BAKE             = true
+# skip SBOM/provenance attestation generation — pure build-time overhead here
+export BUILDX_NO_DEFAULT_ATTESTATIONS = 1
 
 COMPOSE  = docker compose -f srcs/docker-compose.yml
 DATA_DIR = /home/dlesieur/data
 LOGIN    = dlesieur
+
+SECRETS  = secrets
+CA_KEY   = $(SECRETS)/ca.key
+CA_CRT   = $(SECRETS)/ca.crt
+SRV_KEY  = $(SECRETS)/server.key
+SRV_CRT  = $(SECRETS)/server.crt
 
 # ── Default target ───────────────────────────────────────────────────
 all: up
@@ -15,26 +24,60 @@ up: setup
 
 # ── Build images only (no start) ─────────────────────────────────────
 build: setup
-	$(COMPOSE) build --parallel
+	$(COMPOSE) build
 
-# ── Setup host directories, /etc/hosts & local CA ────────────────────
-CA_DIR  = secrets
-CA_KEY  = $(CA_DIR)/ca.key
-CA_CRT  = $(CA_DIR)/ca.crt
-
+# ── Setup: data dirs, .env, secrets, /etc/hosts, TLS material ────────
+# Everything is generated only if missing, so a fresh clone starts with
+# a single `make` while existing credentials are never overwritten.
 setup:
-	@mkdir -p $(DATA_DIR)/mariadb $(DATA_DIR)/wordpress $(CA_DIR)
+	@mkdir -p $(DATA_DIR)/mariadb $(DATA_DIR)/wordpress $(SECRETS)
+	@if [ ! -f srcs/.env ]; then \
+		sed 's/login\.42\.fr/$(LOGIN).42.fr/g' .env.example > srcs/.env; \
+		echo "[setup] Generated srcs/.env — edit it to customise"; \
+	fi
+	@for f in db_password db_root_password; do \
+		if [ ! -f $(SECRETS)/$$f.txt ]; then \
+			openssl rand -base64 24 | tr -d '/+=' > $(SECRETS)/$$f.txt; \
+			chmod 600 $(SECRETS)/$$f.txt; \
+			echo "[setup] Generated random $(SECRETS)/$$f.txt"; \
+		fi; \
+	done
+	@if [ ! -f $(SECRETS)/credentials.txt ]; then \
+		printf '%s\n%s\n' "$$(openssl rand -base64 24 | tr -d '/+=')" \
+			"$$(openssl rand -base64 24 | tr -d '/+=')" > $(SECRETS)/credentials.txt; \
+		chmod 600 $(SECRETS)/credentials.txt; \
+		echo "[setup] Generated random $(SECRETS)/credentials.txt (line 1 = WP admin, line 2 = editor)"; \
+	fi
 	@if ! grep -q "$(LOGIN).42.fr" /etc/hosts 2>/dev/null; then \
 		echo "127.0.0.1 $(LOGIN).42.fr" | sudo tee -a /etc/hosts > /dev/null; \
 	fi
+	@$(MAKE) --no-print-directory certs
+
+# ── TLS: local root CA + server certificate signed on the HOST ───────
+# The CA private key never enters any container; nginx only receives
+# the server certificate and its key as Docker secrets.
+certs:
 	@if [ ! -f $(CA_CRT) ]; then \
-		echo "[setup] Generating local Root CA …"; \
+		echo "[setup] Generating local Root CA ..."; \
 		openssl ecparam -genkey -name prime256v1 -out $(CA_KEY) 2>/dev/null; \
-		openssl req -new -x509 -nodes -days 3650 \
-			-key  $(CA_KEY) \
-			-out  $(CA_CRT) \
+		openssl req -new -x509 -nodes -days 3650 -key $(CA_KEY) -out $(CA_CRT) \
 			-subj "/C=FR/ST=IDF/L=Paris/O=42/OU=Inception/CN=Inception Local CA"; \
-		echo "[setup] CA certificate created at $(CA_CRT)"; \
+		chmod 600 $(CA_KEY); \
+	fi
+	@DOMAIN=$$(sed -n 's/^DOMAIN_NAME=//p' srcs/.env); \
+	[ -n "$$DOMAIN" ] || DOMAIN=$(LOGIN).42.fr; \
+	if [ ! -f $(SRV_CRT) ] || ! openssl x509 -in $(SRV_CRT) -noout -text | grep -q "DNS:$$DOMAIN"; then \
+		echo "[setup] Issuing server certificate for $$DOMAIN ..."; \
+		openssl ecparam -genkey -name prime256v1 -out $(SRV_KEY) 2>/dev/null; \
+		openssl req -new -key $(SRV_KEY) -out $(SECRETS)/server.csr \
+			-subj "/C=FR/ST=IDF/L=Paris/O=42/OU=42/CN=$$DOMAIN"; \
+		printf 'authorityKeyIdentifier=keyid,issuer\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:%s,DNS:localhost,IP:127.0.0.1\n' "$$DOMAIN" \
+			> $(SECRETS)/san.cnf; \
+		openssl x509 -req -days 365 -in $(SECRETS)/server.csr \
+			-CA $(CA_CRT) -CAkey $(CA_KEY) -CAcreateserial \
+			-out $(SRV_CRT) -extfile $(SECRETS)/san.cnf 2>/dev/null; \
+		rm -f $(SECRETS)/server.csr $(SECRETS)/san.cnf; \
+		chmod 600 $(SRV_KEY); \
 	fi
 
 # ── Stop / start / restart ──────────────────────────────────────────
@@ -57,6 +100,19 @@ logs:
 status:
 	$(COMPOSE) ps
 
+# ── Compliance tests & benchmarks ────────────────────────────────────
+test:
+	@sh tests/compliance.sh
+
+test-deep:
+	@sh tests/compliance.sh --deep
+
+bench:
+	@sh tests/bench.sh
+
+bench-full:
+	@sh tests/bench.sh --with-boot
+
 # ── WordPress health check ───────────────────────────────────────────
 WP      = docker exec wordpress wp --allow-root --path=/var/www/html
 SITE    = https://$(LOGIN).42.fr
@@ -64,10 +120,10 @@ ADMIN   = $(SITE)/wp-admin
 
 run_wp: up
 	@echo "\n\033[1;33m⏳ Waiting for containers to be ready…\033[0m"
-	@until docker exec mariadb mysqladmin ping -h localhost --silent 2>/dev/null; do \
+	@until docker exec mariadb mariadb-admin ping -h localhost --silent 2>/dev/null; do \
 		printf "."; sleep 2; \
 	done && echo " MariaDB ✔"
-	@until docker exec wordpress php-fpm83 -t 2>/dev/null; do \
+	@until docker exec wordpress php-fpm84 -t 2>/dev/null; do \
 		printf "."; sleep 2; \
 	done 2>/dev/null && echo " php-fpm ✔"
 	@until curl -ks --max-time 2 "$(SITE)" >/dev/null 2>&1; do \
@@ -83,11 +139,9 @@ run_wp: up
 	@$(WP) option get siteurl
 	@$(WP) option get blogname
 	@echo "\n\033[1;34m━━ Database \033[0m"
-	@$(WP) db check && echo "\033[0;32mDB OK\033[0m" || echo "\033[0;31m⚠ DB error\033[0m"
+	@$(WP) eval 'global $$wpdb; echo "DB connection OK — server " . $$wpdb->db_version() . "\n";'
 	@echo "\n\033[1;34m━━ Users \033[0m"
 	@$(WP) user list --fields=ID,user_login,roles,user_email
-	@echo "\n\033[1;34m━━ Plugins \033[0m"
-	@$(WP) plugin list --fields=name,status,version
 	@echo "\n\033[1;34m━━ Themes \033[0m"
 	@$(WP) theme list --fields=name,status,version
 	@echo "\n\033[1;34m━━ PHP / OPcache \033[0m"
@@ -102,25 +156,62 @@ run_wp: up
 	@xdg-open "$(SITE)" 2>/dev/null || true
 
 # ── Trust the local CA on the host system ────────────────────────────
+# Browsers do NOT read the system store: Chrome/Chromium use NSS user
+# databases and Firefox uses per-profile databases — and on modern
+# Ubuntu both are snaps whose profiles live under ~/snap/. This target
+# covers deb, snap and flatpak locations, installs the Firefox
+# enterprise policy (the reliable channel for snap Firefox), verifies
+# every insertion, and fails loudly instead of pretending success.
 trust:
 	@if [ ! -f $(CA_CRT) ]; then echo "Run 'make setup' first."; exit 1; fi
-	@echo "[trust] Installing CA into system trust store …"
+	@command -v certutil >/dev/null 2>&1 || { \
+		echo "[trust] Installing certutil (libnss3-tools) ..."; \
+		sudo apt-get install -y libnss3-tools 2>/dev/null \
+			|| sudo dnf install -y nss-tools 2>/dev/null \
+			|| sudo apk add nss-tools 2>/dev/null \
+			|| { echo "[trust] ERROR: install certutil manually"; exit 1; }; }
+	@echo "[trust] System trust store ..."
 	@sudo cp $(CA_CRT) /usr/local/share/ca-certificates/inception-ca.crt
-	@sudo update-ca-certificates
-	@echo "[trust] Installing CA into Chrome/Chromium NSS database …"
-	@for db in $$(find ~/.pki/nssdb -name "cert9.db" 2>/dev/null); do \
+	@sudo update-ca-certificates >/dev/null 2>&1 || true
+	@echo "[trust] Firefox enterprise policy (deb + snap) ..."
+	@sudo mkdir -p /etc/firefox/policies
+	@sudo cp $(CA_CRT) /etc/firefox/policies/inception-ca.crt
+	@printf '{\n  "policies": {\n    "Certificates": {\n      "ImportEnterpriseRoots": true,\n      "Install": ["/etc/firefox/policies/inception-ca.crt"]\n    }\n  }\n}\n' \
+		| sudo tee /etc/firefox/policies/policies.json >/dev/null
+	@if [ -d /usr/lib/firefox ]; then \
+		sudo mkdir -p /usr/lib/firefox/distribution; \
+		sudo cp /etc/firefox/policies/policies.json /usr/lib/firefox/distribution/policies.json; \
+	fi
+	@echo "[trust] Browser NSS databases (deb, snap, flatpak) ..."
+	@if [ ! -f "$$HOME/.pki/nssdb/cert9.db" ]; then \
+		mkdir -p "$$HOME/.pki/nssdb"; \
+		certutil -d sql:"$$HOME/.pki/nssdb" -N --empty-password 2>/dev/null || true; \
+	fi
+	@FOUND=0; \
+	for db in $$(find "$$HOME/.mozilla/firefox" \
+			"$$HOME/snap/firefox/common/.mozilla/firefox" \
+			"$$HOME/.pki/nssdb" \
+			"$$HOME/snap/chromium/current/.pki/nssdb" \
+			"$$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox" \
+			"$$HOME/.var/app/com.google.Chrome/.pki/nssdb" \
+			"$$HOME/.var/app/org.chromium.Chromium/.pki/nssdb" \
+			-name cert9.db 2>/dev/null); do \
 		dir=$$(dirname "$$db"); \
 		certutil -d sql:"$$dir" -D -n "Inception Local CA" 2>/dev/null || true; \
-		certutil -d sql:"$$dir" -A -t "CT,C,C" -n "Inception Local CA" -i $(CA_CRT); \
-	done
-	@echo "[trust] Installing CA into Firefox NSS databases …"
-	@for db in $$(find ~/.mozilla/firefox -name "cert9.db" 2>/dev/null); do \
-		dir=$$(dirname "$$db"); \
-		certutil -d sql:"$$dir" -D -n "Inception Local CA" 2>/dev/null || true; \
-		certutil -d sql:"$$dir" -A -t "CT,C,C" -n "Inception Local CA" -i $(CA_CRT); \
-	done
-	@echo "\033[1;32m✔ CA trusted everywhere (system, Chrome, Firefox, curl).\033[0m"
-	@echo "\033[1;33m⚠  Restart your browser for changes to take effect.\033[0m"
+		if certutil -d sql:"$$dir" -A -t "CT,C,C" -n "Inception Local CA" -i $(CA_CRT) 2>/dev/null \
+			&& certutil -d sql:"$$dir" -L 2>/dev/null | grep -q "Inception Local CA"; then \
+			echo "  ✔ $$dir"; FOUND=$$((FOUND+1)); \
+		else \
+			echo "  ✘ $$dir"; \
+		fi; \
+	done; \
+	if [ "$$FOUND" -eq 0 ]; then \
+		echo "[trust] ERROR: no browser NSS database was updated"; exit 1; \
+	fi
+	@if pgrep -x firefox >/dev/null 2>&1 || pgrep -f "chromium|chrome" >/dev/null 2>&1; then \
+		echo "\033[1;33m⚠  Browsers are RUNNING — quit them completely (all windows) and reopen.\033[0m"; \
+	fi
+	@echo "\033[1;32m✔ CA trusted: system store, browser NSS databases, Firefox policy.\033[0m"
 
 # ── Cleanup ──────────────────────────────────────────────────────────
 clean: down
@@ -132,6 +223,11 @@ fclean: clean
 	@sudo rm -f /usr/local/share/ca-certificates/inception-ca.crt 2>/dev/null; \
 		sudo update-ca-certificates 2>/dev/null || true
 
-re: fclean all
+# Full rebuild of this project only: clean removes its containers,
+# volumes, images and host data, then everything is rebuilt. Docker's
+# build cache and other projects are left untouched (use fclean for a
+# machine-wide wipe).
+re: clean all
 
-.PHONY: all up build setup down stop start restart logs status run_wp trust clean fclean re
+.PHONY: all up build setup certs down stop start restart logs status \
+	test test-deep bench bench-full run_wp trust clean fclean re

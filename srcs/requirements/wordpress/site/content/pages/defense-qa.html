@@ -1,0 +1,48 @@
+<h2>Docker fundamentals</h2>
+<p><strong>How does Docker work?</strong> Images are immutable layered filesystems; containers are processes isolated with kernel namespaces and limited by cgroups, sharing the host kernel — that's why they start in milliseconds where VMs boot a whole OS.</p>
+<p><strong>Why <code>alpine:3.23</code>?</strong> The subject demands the <em>penultimate stable</em> Alpine or Debian. Latest stable is 3.24 → penultimate is 3.23. The test suite re-verifies this against Docker Hub live, because the target moves with releases.</p>
+<p><strong>Why is pulling ready-made images forbidden?</strong> The point is writing the service setup yourself. Every Dockerfile starts <code>FROM alpine:3.23</code>, installs from Alpine packages, copies hand-written config, and sets a custom entrypoint.</p>
+
+<h2>NGINX &amp; TLS</h2>
+<p><strong>Prove only TLS 1.2/1.3 work:</strong></p>
+[cmd]openssl s_client -connect dlesieur.42.fr:443 -tls1_2[/cmd]
+[out]New, TLSv1.2, Cipher is ECDHE-ECDSA-AES128-GCM-SHA256   ✔[/out]
+[cmd]openssl s_client -connect dlesieur.42.fr:443 -tls1_1[/cmd]
+[out]no protocols available   ✘ (rejected, as required)[/out]
+<p><strong>The certificate chain:</strong> <code>make setup</code> creates a local Root CA on the host and signs the server certificate (SANs: domain, localhost, 127.0.0.1). Only the server cert/key enter nginx as secrets — the CA key stays on the host because <code>make trust</code> makes browsers trust it.</p>
+
+<h2>WordPress &amp; php-fpm</h2>
+<p><strong>What is php-fpm, and why “without nginx”?</strong> A pool of PHP worker processes speaking FastCGI on port 9000. Separation of concerns: the WordPress container runs <em>only</em> php-fpm; nginx forwards <code>.php</code> requests and serves static files itself.</p>
+<p><strong>The admin-name rule:</strong> enforced, not just documented — the entrypoint refuses to boot with a username containing “admin”, and the suite checks the live database:</p>
+[cmd]docker exec wordpress wp --allow-root user list[/cmd]
+[out]editor      editor
+superuser   administrator[/out]
+
+<h2>PID 1, crashes &amp; restarts</h2>
+<p><strong>Why does every entrypoint end with <code>exec</code>?</strong> The daemon replaces the shell and becomes PID 1 — it receives Docker's signals directly and no zombie shell fronts it. That's also why <code>tail -f</code>, <code>bash</code>, <code>sleep infinity</code> and <code>while true</code> are prohibited keep-alive hacks.</p>
+[cmd]docker exec nginx ps -o pid,comm[/cmd]
+[out]PID   COMMAND
+1     nginx[/out]
+[cmd]docker exec nginx kill 1 && sleep 5 && make status[/cmd]
+[out]nginx    Up 4 seconds (health: starting)   ← auto-restarted[/out]
+[callout type="info" title="why unless-stopped"]A SIGTERM'd daemon exits gracefully (code 0). <code>on-failure</code> would never revive it — <code>unless-stopped</code> does, while <code>docker stop</code> still stays stopped.[/callout]
+
+<h2>Volumes, network, secrets</h2>
+<p><strong>Named volumes in /home/login/data?</strong> Top-level named volumes with the local driver's <code>device</code> option — real named volumes (no service bind mounts) whose data lives at the mandated path. <strong>Network?</strong> One bridge, service-name DNS, only 443 published. <strong>Secrets?</strong> Files at <code>/run/secrets</code>, mode 0400 — nothing in env, images or Git.</p>
+
+<h2>Live-proof cheat sheet</h2>
+[term_window title="run these during the defense"]
+[cmd]make test-deep[/cmd]
+[cmd]docker volume inspect inception_wp_data[/cmd]
+[cmd]docker exec wordpress wp --allow-root user list[/cmd]
+[cmd]make bench[/cmd]
+[/term_window]
+
+<h2>Typical “small modification” asks</h2>
+<table>
+<tr><th>ask</th><th>where</th></tr>
+<tr><td>change the domain</td><td><code>DOMAIN_NAME</code> in <code>srcs/.env</code> → <code>make up</code> re-issues the cert</td></tr>
+<tr><td>add a WP user</td><td><code>docker exec wordpress wp --allow-root user create &lt;login&gt; &lt;email&gt; --role=author</code></td></tr>
+<tr><td>change upload size</td><td>nginx <code>client_max_body_size</code> <em>and</em> PHP <code>uploads.ini</code> → rebuild</td></tr>
+<tr><td>add a bonus service</td><td>new <code>srcs/requirements/&lt;svc&gt;/</code> + compose service block</td></tr>
+</table>

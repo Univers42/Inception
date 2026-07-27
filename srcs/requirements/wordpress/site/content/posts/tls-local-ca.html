@@ -1,0 +1,21 @@
+<p>Self-signed certificates mean browser warnings forever. A local certification authority means a real padlock — but it also means you've created a key that can impersonate <em>any website</em> to every browser that trusts it. Where that key lives becomes the whole design.</p>
+
+<h2>The first version had it backwards</h2>
+<p>The CA keypair was mounted into the nginx container, which signed its own server certificate at boot. Convenient — and wrong: <code>make trust</code> installs that CA into the system and browser trust stores. Compromise the container, steal the CA key, and you can mint <code>github.com</code>.</p>
+
+<h2>Sign on the host, ship only the leaf</h2>
+<p><code>make setup</code> now issues everything host-side: a 10-year Root CA, then a server certificate for the domain with proper SANs (domain, localhost, 127.0.0.1). Only the <em>server</em> cert and key enter the container — as Docker secrets, mode 0400:</p>
+[term_window title="secrets/"]
+[out]ca.key      ← never leaves the host
+ca.crt      ← what `make trust` installs
+server.key  → nginx (secret, 0400)
+server.crt  → nginx (secret, 0444)[/out]
+[/term_window]
+<p>Bonus effects: openssl disappeared from the nginx image entirely, boots got faster (no per-boot cert generation), and the certificate is re-issued automatically when <code>DOMAIN_NAME</code> changes — the SAN is checked against <code>srcs/.env</code> on every <code>make up</code>.</p>
+
+<h2>Proving it</h2>
+[cmd]openssl s_client -connect dlesieur.42.fr:443 -tls1_3 | openssl x509 -noout -subject -issuer[/cmd]
+[out]subject= CN = dlesieur.42.fr
+issuer=  CN = Inception Local CA[/out]
+
+[callout type="warn" title="lesson"]A browser-trusted CA key is the most dangerous secret in the project — architecture must guarantee it never crosses a container boundary.[/callout]

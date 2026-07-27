@@ -1,68 +1,104 @@
 #!/bin/sh
-set -e
+set -eu
 
-# ── Read Docker secrets ──────────────────────────────────────────────
-WP_ADMIN_PASSWORD="$(head -n 1 /run/secrets/credentials)"
-WP_USER_PASSWORD="$(tail  -n 1 /run/secrets/credentials)"
+: "${DOMAIN_NAME:?}" "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}" "${WP_TITLE:?}"
+: "${WP_ADMIN_USER:?}" "${WP_ADMIN_EMAIL:?}" "${WP_USER:?}" "${WP_USER_EMAIL:?}"
+
+# ── Subject rule: admin username must not contain admin/Admin/... ────
+case "$(printf %s "$WP_ADMIN_USER" | tr '[:upper:]' '[:lower:]')" in
+    *admin*)
+        echo "[entrypoint] ERROR: WP_ADMIN_USER '$WP_ADMIN_USER' must not contain 'admin'" >&2
+        exit 1 ;;
+esac
+
+# ── Read Docker secrets (line 1 = admin pw, line 2 = editor pw) ─────
+WP_ADMIN_PASSWORD="$(sed -n 1p /run/secrets/credentials)"
+WP_USER_PASSWORD="$(sed -n 2p /run/secrets/credentials)"
 MYSQL_PASSWORD="$(cat /run/secrets/db_password)"
+[ -n "$WP_ADMIN_PASSWORD" ] && [ -n "$WP_USER_PASSWORD" ] || {
+    echo "[entrypoint] ERROR: secrets/credentials.txt needs two non-empty lines" >&2
+    exit 1
+}
 
-# ── Prepare OPcache file cache directory ─────────────────────────────
-mkdir -p /tmp/opcache && chown nobody:nobody /tmp/opcache
-
-# ── Wait for MariaDB ─────────────────────────────────────────────────
-echo "[entrypoint] Waiting for MariaDB …"
-until mysqladmin ping -h mariadb -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent 2>/dev/null; do
+# ── Bounded wait until MariaDB accepts the application user ──────────
+# php-mysqli does the probing; no database client package required.
+echo "[entrypoint] Waiting for MariaDB ..."
+i=0
+until WPDB_PW="$MYSQL_PASSWORD" php -r '
+        mysqli_report(MYSQLI_REPORT_OFF);
+        exit(@mysqli_connect("mariadb", $argv[1], getenv("WPDB_PW"), $argv[2]) ? 0 : 1);
+    ' "$MYSQL_USER" "$MYSQL_DATABASE" 2>/dev/null; do
+    i=$((i + 1))
+    if [ "$i" -ge 60 ]; then
+        echo "[entrypoint] ERROR: MariaDB unreachable after 60s" >&2
+        exit 1
+    fi
     sleep 1
 done
 echo "[entrypoint] MariaDB is ready."
 
-# ── Install & configure WordPress on first run ───────────────────────
+# ── One-time WordPress installation ──────────────────────────────────
 if [ ! -f /var/www/html/wp-config.php ]; then
-    # Core files are pre-downloaded in the image; download default themes/plugins
     if [ ! -f /var/www/html/wp-includes/version.php ]; then
-        echo "[entrypoint] Downloading WordPress core …"
-        wp core download --allow-root --path=/var/www/html
-    else
-        echo "[entrypoint] WordPress core already cached in image."
-        # Download default content (themes/plugins) that was skipped at build
-        wp core download --allow-root --path=/var/www/html --skip-content 2>/dev/null || true
+        echo "[entrypoint] Deploying WordPress core from image ..."
+        cp -a /usr/src/wordpress/. /var/www/html/
     fi
 
-    echo "[entrypoint] Creating wp-config.php …"
-    wp config create --allow-root \
-        --dbname="${MYSQL_DATABASE}" \
-        --dbuser="${MYSQL_USER}" \
-        --dbpass="${MYSQL_PASSWORD}" \
-        --dbhost=mariadb:3306 \
-        --path=/var/www/html
+    echo "[entrypoint] Writing wp-config.php ..."
+    # Heredoc instead of `wp config create` — saves a full PHP/WP-CLI boot.
+    # Salts are generated locally (hex only, so no quoting hazards);
+    # passwords are escaped for PHP single-quoted strings.
+    php_escape() { printf %s "$1" | sed 's/\\/\\\\/g; s/'\''/\\'\''/g'; }
+    SALTS="$(php -r 'foreach (["AUTH_KEY","SECURE_AUTH_KEY","LOGGED_IN_KEY","NONCE_KEY","AUTH_SALT","SECURE_AUTH_SALT","LOGGED_IN_SALT","NONCE_SALT"] as $k) printf("define( %c%s%c, %c%s%c );\n", 39, $k, 39, 39, bin2hex(random_bytes(32)), 39);')"
+    cat > /var/www/html/wp-config.php <<EOF
+<?php
+define( 'DB_NAME', '$(php_escape "$MYSQL_DATABASE")' );
+define( 'DB_USER', '$(php_escape "$MYSQL_USER")' );
+define( 'DB_PASSWORD', '$(php_escape "$MYSQL_PASSWORD")' );
+define( 'DB_HOST', 'mariadb:3306' );
+define( 'DB_CHARSET', 'utf8' );
+define( 'DB_COLLATE', '' );
+${SALTS}
+\$table_prefix = 'wp_';
+define( 'WP_DEBUG', false );
+if ( ! defined( 'ABSPATH' ) ) {
+    define( 'ABSPATH', __DIR__ . '/' );
+}
+require_once ABSPATH . 'wp-settings.php';
+EOF
+    chown nobody:nobody /var/www/html/wp-config.php
+    chmod 640 /var/www/html/wp-config.php
 
-    # Inject extra performance constants into wp-config.php
-    wp config set --allow-root --type=constant WP_CACHE true --raw --path=/var/www/html
-    wp config set --allow-root --type=constant DISABLE_WP_CRON false --raw --path=/var/www/html
-    wp config set --allow-root --type=constant WP_POST_REVISIONS 3 --raw --path=/var/www/html
-    wp config set --allow-root --type=constant EMPTY_TRASH_DAYS 7 --raw --path=/var/www/html
-
-    echo "[entrypoint] Installing WordPress …"
+    echo "[entrypoint] Installing WordPress ..."
     wp core install --allow-root \
         --url="https://${DOMAIN_NAME}" \
-        --title="${WP_TITLE}" \
-        --admin_user="${WP_ADMIN_USER}" \
-        --admin_password="${WP_ADMIN_PASSWORD}" \
-        --admin_email="${WP_ADMIN_EMAIL}" \
+        --title="$WP_TITLE" \
+        --admin_user="$WP_ADMIN_USER" \
+        --admin_password="$WP_ADMIN_PASSWORD" \
+        --admin_email="$WP_ADMIN_EMAIL" \
         --skip-email \
         --path=/var/www/html
 
-    echo "[entrypoint] Creating editor user …"
+    echo "[entrypoint] Creating editor user ..."
     wp user create --allow-root \
-        "${WP_USER}" "${WP_USER_EMAIL}" \
+        "$WP_USER" "$WP_USER_EMAIL" \
         --role=editor \
-        --user_pass="${WP_USER_PASSWORD}" \
+        --user_pass="$WP_USER_PASSWORD" \
         --path=/var/www/html
 
-    chown -R nobody:nobody /var/www/html
+    # cp -a preserved nobody ownership from the image; only pick up any
+    # stragglers created as root during the install (full-tree chown -R
+    # over ~2600 files costs ~1s and is unnecessary)
+    find /var/www/html -user root -exec chown nobody:nobody {} + 2>/dev/null || true
     echo "[entrypoint] WordPress setup complete."
 fi
 
+# ── Deploy the documentation site (theme, plugin, seeded content) ────
+# Idempotent and deliberately NON-FATAL: site provisioning must never
+# be able to break the service boot path.
+sh /usr/src/inception-site/install.sh \
+    || echo "[entrypoint] WARN: site provisioning failed (service boots anyway)" >&2
+
 # ── Start php-fpm as PID 1 ───────────────────────────────────────────
-echo "[entrypoint] Starting php-fpm …"
-exec php-fpm83 -F
+echo "[entrypoint] Starting php-fpm ..."
+exec php-fpm84 -F

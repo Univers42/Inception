@@ -1,0 +1,19 @@
+<p>The cold build started at 25.8 seconds. It ends at ~13 — but the interesting part is what refused to get faster, and why.</p>
+
+<h2>Profile first</h2>
+<p>Per-image timing showed WordPress (13.5s) and MariaDB (12.1s) neck and neck, nginx irrelevant (2s). Inside WordPress, everything ran serially: install PHP, download WP-CLI, then let WP-CLI's PHP code unzip WordPress — slowly, and with a memory-limit workaround.</p>
+
+<h2>Three moves that worked</h2>
+<ul>
+<li><strong>Multi-stage parallelism</strong> — a side stage fetches the WP tarball with busybox wget and extracts it with native tar, while BuildKit installs PHP packages concurrently. WordPress: 13.5 → 10.7s.</li>
+<li><strong>Deleting the dead half of MariaDB</strong> — Alpine's package ships an embedded server, a test client, RocksDB tools, Aria/MyISAM offline utilities: &gt;100MB of binaries this stack never executes. Removed in-layer: 318 → 160MB, faster export. MariaDB: 12.1 → 9.9s.</li>
+<li><strong>Attestations off</strong> — provenance generation is pure overhead for a local image.</li>
+</ul>
+
+<h2>The wall that wouldn't move</h2>
+<p>Individually the images got ~25% faster; the parallel wall barely moved. Measuring the downloads alone explained it:</p>
+[cmd]time (apk fetch mariadb… & apk fetch php84… & wget latest.tar.gz…)[/cmd]
+[out]parallel download-only wall: 8.2s  (133MB from public CDNs)[/out]
+<p>Downloads overlap compute in the parallel build — the wall is bounded by shared network and disk unpack, not by any one Dockerfile. The honest floor on this machine is ~13s, and 8.2 of those seconds are literally the internet.</p>
+
+[callout type="info" title="lesson"]Optimize the critical path, then re-measure the <em>system</em> — parallel pipelines are bounded by shared resources, and single-image wins can vanish into overlap.[/callout]

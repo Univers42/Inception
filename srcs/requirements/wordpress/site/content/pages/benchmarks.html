@@ -1,0 +1,36 @@
+<h2>Headline numbers</h2>
+[stats]~13s|true cold build;~7s|pkg-cached rebuild;≤2s|config rebuild;~7s|fresh boot → live;3.5s|warm restart;420MB|total images[/stats]
+<p>Measured on an idle 8-core machine, Docker 29. Every number is reproducible with <code>make bench</code> / <code>make bench-full</code>.</p>
+
+<h2>Before / after</h2>
+<table>
+<tr><th>metric</th><th>original</th><th>reworked</th></tr>
+<tr><td>true cold build (<code>--no-cache --pull</code>)</td><td>25.8s</td><td><strong>~13s</strong></td></tr>
+<tr><td>config-change rebuild</td><td>3.9s</td><td><strong>≤2s</strong></td></tr>
+<tr><td>fresh first boot → live site</td><td>14.4s <em>(blank, broken site)</em></td><td><strong>~7s (working site)</strong></td></tr>
+<tr><td>full pipeline on a virgin machine</td><td>~40s</td><td><strong>~20s</strong></td></tr>
+<tr><td>images total</td><td>578MB</td><td><strong>420MB</strong> (mariadb 160 · wordpress 244 · nginx 16)</td></tr>
+</table>
+
+<h2>Where the speed comes from</h2>
+<h3>Build time</h3>
+<ul>
+<li><strong>Minimal packages</strong> — nginx ships only nginx (certs from the host, <code>sed</code> templating); WordPress needs no wget, no DB client, no unused extensions.</li>
+<li><strong>Multi-stage parallelism</strong> — the WP tarball + WP-CLI download in a side stage that BuildKit runs concurrently with the PHP install; native <code>tar</code> beats PHP unzip.</li>
+<li><strong>MariaDB trimmed 318→160MB</strong> — embedded server, test client and RocksDB/Aria/MyISAM offline tools deleted in-layer (the engines live inside <code>mariadbd</code>).</li>
+<li><strong>BuildKit cache mounts</strong> — .apk files and the WP tarball persist across package-layer changes; Docker 29 discards them under <code>--no-cache</code>, so the cold number stays honest.</li>
+</ul>
+<h3>Boot time</h3>
+<ul>
+<li><strong>Zero-download first boot</strong> — WP core is copied from the image, not fetched.</li>
+<li><strong><code>mariadbd --bootstrap</code></strong> — account init without a temporary server.</li>
+<li><strong>500ms start-interval healthchecks</strong> — readiness detected in half-second granularity instead of 3s ticks, per dependency hop.</li>
+</ul>
+
+<h2>Honest methodology</h2>
+[callout type="info" title="what cold means"]“True cold” = empty layer cache, empty package caches, base re-pulled. The bench wipes its dedicated cache IDs first, and Docker 29 guarantees cache mounts are discarded under <code>--no-cache</code>. Numbers drift badly on a loaded machine — a build measured 16s idle read 24s under load. Benchmark quiet, compare same-session A/B only.[/callout]
+[cmd]make bench[/cmd]
+[out]true cold   (empty pkg caches)  : 13.1s
+pkg-cached  (layers re-run, warm caches) : 6.9s
+warm build  (all confs touched) : 2.0s
+no-op build (nothing changed)   : 0.6s[/out]

@@ -1,0 +1,17 @@
+<p>From <code>docker compose up -d</code> to a live HTTPS WordPress in 6.8 seconds — on completely fresh volumes, database initialisation and WordPress installation included. Here's where the 11.4-second chain was hiding its fat.</p>
+
+<h2>Dead time #1: healthcheck ticks</h2>
+<p>Checks ran every 3 seconds — so each dependency hop (mariadb → wordpress → nginx) wasted up to 3s just <em>noticing</em> readiness. Docker's <code>--start-interval=500ms</code> polls twice a second during startup while keeping the relaxed cadence afterwards.</p>
+
+<h2>Dead time #2: the temporary server dance</h2>
+<p>Classic MariaDB init: start a throwaway <code>--skip-networking</code> server, poll until it answers, run the account SQL, shut it down, start the real one. Replaced with bootstrap mode — SQL applied directly, no server lifecycle, no client, no auth:</p>
+[cmd]mariadbd --user=mysql --bootstrap <<SQL[/cmd]
+[out]ERROR: 1290  The MariaDB server is running with --skip-grant-tables[/out]
+<p>…which is how I learned that bootstrap mode doesn't load the grant tables. The fix is delightfully arcane: make <code>FLUSH PRIVILEGES;</code> the <em>first</em> statement — it loads the tables, after which <code>ALTER USER</code> and <code>GRANT</code> are legal. That gotcha is now documented in three places so nobody “cleans it up”.</p>
+
+<h2>Dead time #3: PHP boots nobody asked for</h2>
+<p><code>wp config create</code> spends ~0.6s booting PHP to write a config file a heredoc writes for free (salts generated locally, passwords escaped). And the full-tree <code>chown -R</code> over ~2600 files became a targeted <code>find -user root</code> — the copied core already carries the right ownership from the image.</p>
+
+[stats]11.4s → 6.8s|boot chain;3.9s|mariadb healthy;6.1s|wordpress healthy;0 net|bytes downloaded at boot[/stats]
+
+[callout type="ok" title="lesson"]Boot time hides in the gaps between services, not in the services — measure the chain, not the daemons.[/callout]

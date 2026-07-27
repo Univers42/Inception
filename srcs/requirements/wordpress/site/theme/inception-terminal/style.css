@@ -1,0 +1,11 @@
+/*
+Theme Name:  Inception Terminal
+Theme URI:   https://dlesieur.42.fr
+Author:      dlesieur
+Description: Phosphor Terminal — a dark, all-monospace, shell-aesthetic documentation theme for the Inception project. Self-contained: system font stack, zero external assets.
+Version:     1.0.0
+License:     MIT
+Text Domain: inception-terminal
+*/
+
+/* All styles live in assets/theme.css (enqueued by functions.php). */

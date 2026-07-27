@@ -1,108 +1,104 @@
 # User Documentation — Inception
 
-## What does this stack provide?
+This guide explains, in simple terms, how to use and administer the Inception stack.
 
-Inception deploys a complete WordPress website accessible over HTTPS:
+## 1. What services does the stack provide?
+
+Inception deploys a complete WordPress website served over HTTPS:
 
 | Service | Purpose |
 |---------|---------|
-| **NGINX** | Serves the site over TLS (port 443) |
-| **WordPress** | Content management system (CMS) |
-| **MariaDB** | Database engine storing all site content |
+| **NGINX** | The web server. Serves the site over TLS on port 443 — the only door into the stack |
+| **WordPress** | The content management system (CMS) you use to write and manage the site |
+| **MariaDB** | The database that stores all site content (posts, users, settings) |
 
----
+The three services run in separate Docker containers and talk to each other over a
+private network. Only NGINX is reachable from your machine.
 
-## Starting the project
-
-```bash
-make          # builds images, creates volumes, starts all containers
-```
-
-## Stopping the project
+## 2. Starting and stopping the project
 
 ```bash
-make down     # stops and removes containers (data is preserved)
+make            # first start: provisions everything, builds, launches (~20s)
+make down       # stop and remove the containers — your data is preserved
+make restart    # restart all services
 ```
 
-## Restarting
+After the first start, `make` brings the stack back in a few seconds.
 
-```bash
-make restart
-```
-
----
-
-## Accessing the website
+## 3. Accessing the website and the administration panel
 
 | Page | URL |
 |------|-----|
-| **Front-end** | `https://dlesieur.42.fr` |
-| **Admin panel** | `https://dlesieur.42.fr/wp-admin` |
+| **Website** | `https://dlesieur.42.fr` |
+| **Administration panel** | `https://dlesieur.42.fr/wp-admin` |
 
-> Your browser will warn about a self-signed certificate — this is expected.
-> Accept the risk to proceed.
+Log in to the admin panel with the administrator username from `srcs/.env`
+(`WP_ADMIN_USER`, default `superuser`) and the password from
+`secrets/credentials.txt` (first line).
 
----
+> **About the certificate warning:** the site uses a certificate issued by a local
+> certification authority. Either accept the browser warning once, or run
+> `make trust` — it installs the CA into your system and browsers, and the padlock
+> then shows as valid.
 
-## Credentials
+## 4. Locating and managing credentials
 
-All passwords are stored in the `secrets/` directory at the project root:
+All passwords live in the `secrets/` directory at the project root. If you don't
+create them yourself, **random ones are generated on first `make`**:
 
 | File | Contains |
 |------|----------|
-| `secrets/credentials.txt` | WordPress admin password (line 1), editor password (line 2) |
-| `secrets/db_password.txt` | MariaDB application user password |
+| `secrets/credentials.txt` | WordPress **admin** password (line 1) and **editor** password (line 2) |
+| `secrets/db_password.txt` | MariaDB application-user password |
 | `secrets/db_root_password.txt` | MariaDB root password |
 
-Non-sensitive settings (domain, usernames, emails) are in `srcs/.env`.
+Read a password with, for example: `cat secrets/credentials.txt`
 
-### Default users
+Non-sensitive settings (domain, usernames, emails, site title) are in `srcs/.env`.
+
+### The two WordPress users
 
 | User | Role | Username |
 |------|------|----------|
-| Administrator | Full control over WP | Value of `WP_ADMIN_USER` in `.env` |
-| Editor | Can publish/edit posts | Value of `WP_USER` in `.env` |
+| Administrator | Full control over the site | `WP_ADMIN_USER` in `srcs/.env` (default `superuser`) |
+| Editor | Can write and publish posts | `WP_USER` in `srcs/.env` (default `editor`) |
 
----
+**To change credentials:** edit the files in `secrets/` (and/or the names in
+`srcs/.env`), then recreate the stack so they are applied everywhere:
+`make clean && make`. (Passwords are baked into the database and WordPress on first
+installation, so a simple restart is not enough.)
 
-## Checking that services are running
+## 5. Checking that the services run correctly
 
 ```bash
-make status          # shows container status
-make logs            # live tail of all service logs
-docker compose -f srcs/docker-compose.yml ps   # alternative
+make status     # container status — all three should show "Up (healthy)"
+make logs       # live logs of all services
+make test       # runs the full automated check suite
 ```
 
-All three containers should show **Up** (or **Up (healthy)**):
+Expected `make status` output:
 
 ```
 NAME        STATUS
 nginx       Up (healthy)
-wordpress   Up
+wordpress   Up (healthy)
 mariadb     Up (healthy)
 ```
 
-### Quick health checks
+Quick manual checks:
 
 ```bash
-# TLS is working
-curl -kI https://dlesieur.42.fr
-
-# MariaDB responds
-docker exec mariadb mysqladmin ping -h localhost --silent
-
-# WordPress responds
-docker exec wordpress wp --allow-root option get siteurl
+curl -kI https://dlesieur.42.fr                                  # TLS answers
+docker exec mariadb mariadb-admin ping -h localhost --silent     # database alive
+docker exec wordpress wp --allow-root option get siteurl         # WordPress alive
 ```
 
----
-
-## Where is my data?
+## 6. Where is my data?
 
 | Data | Host path | Docker volume |
 |------|-----------|---------------|
-| Database files | `/home/dlesieur/data/mariadb` | `db_data` |
-| WordPress files | `/home/dlesieur/data/wordpress` | `wp_data` |
+| Database | `/home/dlesieur/data/mariadb` | `inception_db_data` |
+| Website files | `/home/dlesieur/data/wordpress` | `inception_wp_data` |
 
-Data persists across `make down` / `make up` cycles.
-To **wipe everything** and start fresh: `make clean` or `make re`.
+Data survives `make down` / `make up` cycles and machine reboots.
+To **erase everything** and start fresh: `make clean` then `make` (or `make re`).

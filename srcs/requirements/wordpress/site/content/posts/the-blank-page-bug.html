@@ -1,0 +1,16 @@
+<p>The stack booted green. Healthchecks passed, TLS handshook, WordPress installed itself — and the front page served <strong>zero bytes</strong> with a straight face and an HTTP 200.</p>
+
+[cmd]docker exec wordpress wp --allow-root theme list[/cmd]
+[out]name  status  update  version
+(empty)[/out]
+
+<h2>The trap: Docker volume copy-up</h2>
+<p>The image pre-downloaded WordPress with <code>--skip-content</code> — no themes, to save build bytes. The plan was to fetch themes on first boot. But when Docker mounts an <em>empty named volume</em> over a directory that has content in the image, it copies that content into the volume first. So the entrypoint's “is core already there?” check found the theme-less core, took its <em>already cached</em> branch, and its fallback download silently failed behind an <code>|| true</code>.</p>
+<p>Result: a fully installed WordPress with no theme at all. WordPress renders that as… nothing. A 200 with an empty body — the kind of bug a healthcheck will never catch, because everything <em>is</em> technically running.</p>
+
+<h2>The fix: stop depending on copy-up at all</h2>
+<p>The full core — themes included — is now staged in the image at <code>/usr/src/wordpress</code>, and first boot does one deterministic thing:</p>
+[cmd]cp -a /usr/src/wordpress/. /var/www/html/[/cmd]
+<p>Zero network at boot, identical behaviour whether copy-up happened or not, and the test suite gained a regression check: <em>an active theme must exist</em>, and the front page must be a real page, not an empty 200.</p>
+
+[callout type="ok" title="lesson"]Never let first-boot correctness depend on Docker's volume copy-up semantics — and never trust an HTTP 200 without checking the body.[/callout]

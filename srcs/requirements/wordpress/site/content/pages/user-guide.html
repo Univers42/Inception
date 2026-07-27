@@ -1,0 +1,41 @@
+<h2>What this stack provides</h2>
+<p>Inception deploys a complete WordPress website served over HTTPS. Three services, each in its own container: <strong>nginx</strong> terminates TLS on port 443 (the only door), <strong>WordPress + php-fpm</strong> renders the site, and <strong>MariaDB</strong> stores every post, page and user. They talk over a private Docker network — only nginx is reachable from your machine.</p>
+
+[stats]443|the only open port;3|isolated containers;2|WordPress users;100%|data kept on restart[/stats]
+
+<h2>Start and stop</h2>
+[cmd]make[/cmd]
+[out]first start provisions everything, builds and launches (~20s)[/out]
+[cmd]make down[/cmd]
+[out]stops and removes containers — your data is preserved[/out]
+[cmd]make restart[/cmd]
+
+<h2>Access the website</h2>
+<p>Front-end: <a href="https://dlesieur.42.fr">https://dlesieur.42.fr</a> — Admin panel: <a href="https://dlesieur.42.fr/wp-admin">https://dlesieur.42.fr/wp-admin</a></p>
+
+[callout type="info" title="certificate"]The site's certificate is issued by a local certification authority. Accept the browser warning once, or run <code>make trust</code> to install the CA — the padlock then shows as valid.[/callout]
+
+<h2>Credentials</h2>
+<p>All passwords live in the <code>secrets/</code> directory at the project root. If you don't create them yourself, random ones are generated on first <code>make</code>:</p>
+<table>
+<tr><th>file</th><th>contains</th></tr>
+<tr><td><code>secrets/credentials.txt</code></td><td>WP admin password (line 1), editor password (line 2)</td></tr>
+<tr><td><code>secrets/db_password.txt</code></td><td>MariaDB application-user password</td></tr>
+<tr><td><code>secrets/db_root_password.txt</code></td><td>MariaDB root password</td></tr>
+</table>
+[cmd]cat secrets/credentials.txt[/cmd]
+<p>The two WordPress users: an <strong>administrator</strong> (username from <code>WP_ADMIN_USER</code> in <code>srcs/.env</code>, default <code>superuser</code> — the subject forbids any name containing “admin”) and an <strong>editor</strong> (<code>WP_USER</code>, default <code>editor</code>).</p>
+
+[callout type="warn" title="changing passwords"]Credentials are baked into the database and WordPress at first installation. To change them: edit the files in <code>secrets/</code>, then rebuild the data with <code>make clean &amp;&amp; make</code>.[/callout]
+
+<h2>Check that everything runs</h2>
+[cmd]make status[/cmd]
+[out]NAME        STATUS
+nginx       Up (healthy)
+wordpress   Up (healthy)
+mariadb     Up (healthy)[/out]
+[cmd]make test[/cmd]
+[out]runs the full automated compliance/health suite[/out]
+
+<h2>Where is my data?</h2>
+<p>Named volumes store everything under <code>/home/dlesieur/data</code> on the host — <code>mariadb/</code> for the database, <code>wordpress/</code> for the site files. Data survives <code>make down</code>, <code>make up</code> and reboots. To erase everything and start fresh: <code>make clean &amp;&amp; make</code>.</p>

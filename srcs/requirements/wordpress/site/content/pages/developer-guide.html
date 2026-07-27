@@ -1,0 +1,43 @@
+<h2>Zero-friction setup</h2>
+<p>A fresh clone needs exactly one command. <code>make setup</code> (run automatically) provisions every missing piece and never overwrites existing files: <code>srcs/.env</code> from the template, random passwords into <code>secrets/</code>, the <code>/etc/hosts</code> entry, and the full TLS chain — a local Root CA plus a host-signed server certificate.</p>
+[term_window title="dlesieur@inception:~/inception"]
+[cmd path="~/inception"]git clone <repo> inception && cd inception && make[/cmd]
+[out]✔ srcs/.env generated          ✔ secrets generated (random)
+✔ CA + server cert issued      ✔ 3 images built
+✔ stack healthy → https://dlesieur.42.fr[/out]
+[/term_window]
+
+<h2>The Makefile is the API</h2>
+<table>
+<tr><th>target</th><th>effect</th></tr>
+<tr><td><code>make up</code> / <code>make down</code></td><td>provision + build + start / stop &amp; remove (data kept)</td></tr>
+<tr><td><code>make test</code> / <code>make test-deep</code></td><td>compliance suite; deep adds crash-restart + persistence</td></tr>
+<tr><td><code>make bench</code> / <code>make bench-full</code></td><td>build benchmarks / + boot benchmarks (wipes project data)</td></tr>
+<tr><td><code>make run_wp</code></td><td>guided WordPress health report</td></tr>
+<tr><td><code>make trust</code></td><td>install the local CA into system + browser trust stores</td></tr>
+<tr><td><code>make clean</code> / <code>make re</code></td><td>remove project containers/volumes/images/data / full rebuild</td></tr>
+</table>
+
+<h2>Entrypoint good practices</h2>
+<p>Every container boots through the same disciplined pattern:</p>
+<ol>
+<li><strong>Fail fast</strong> — <code>set -eu</code>, required env validated, secrets checked non-empty. The WordPress entrypoint refuses any admin username containing “admin”.</li>
+<li><strong>Guarded one-time init</strong> — MariaDB bootstraps accounts via <code>mariadbd --bootstrap</code> behind a success-marker file; WordPress deploys its staged core and installs itself behind a <code>wp-config.php</code> guard. Interrupted first boots self-heal.</li>
+<li><strong>Bounded waits</strong> — the DB wait probes with <code>php -r 'mysqli_connect(…)'</code> and gives up after 60s; the restart policy retries. Never <code>tail -f</code>, <code>sleep infinity</code> or <code>while true</code>.</li>
+<li><strong><code>exec</code> as the last line</strong> — the daemon becomes PID 1 and receives signals directly.</li>
+</ol>
+
+[callout type="warn" title="init guards"]Changing secrets after first boot does not propagate — values are baked at installation. Re-apply with <code>make clean &amp;&amp; make</code>.[/callout]
+
+<h2>Security posture</h2>
+<ul>
+<li>Passwords exist only as Docker secrets (files, mode 0400) — never in env vars, images or Git. <code>docker inspect</code> shows nothing sensitive.</li>
+<li>The CA private key never enters a container; nginx receives only the server cert + key.</li>
+<li>TLS 1.2/1.3 only, single published port, php-fpm workers run as <code>nobody</code>, images ship no unused clients or tools.</li>
+<li>Init SQL and PHP receive properly escaped values — password content cannot inject.</li>
+</ul>
+
+<h2>Testing</h2>
+[cmd]make test-deep[/cmd]
+[out]══ Summary ══  40 passed  1 failed  0 warnings  0 skipped[/out]
+<p>The suite maps one-to-one to subject v5.2: penultimate-Alpine verified live against Docker Hub, image/service naming, forbidden patterns, network and volume rules, secrets hygiene (tracked files <em>and git history</em>), TLS enforcement, the two WP users, PID 1 daemons, crash-restart and persistence. See the <a href="/defense-qa/">Defense Q&amp;A</a> for live-proof commands.</p>

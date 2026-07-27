@@ -1,51 +1,27 @@
 #!/bin/sh
-set -e
+set -eu
 
-CA_KEY="/run/secrets/ca_key"
-CA_CRT="/run/secrets/ca_crt"
+: "${DOMAIN_NAME:?DOMAIN_NAME is required}"
+CERTS_CRT="${CERTS_CRT:-/etc/nginx/ssl/inception.crt}"
+CERTS_KEY="${CERTS_KEY:-/etc/nginx/ssl/inception.key}"
 
-# ── Generate server certificate signed by local CA ───────────────────
-if [ ! -f "${CERTS_CRT}" ]; then
-    echo "[entrypoint] Generating server certificate signed by local CA …"
+# ── Install TLS material issued on the host (make setup) ─────────────
+# The CA private key never enters any container; only the server
+# certificate and its private key are mounted as Docker secrets.
+mkdir -p "$(dirname "$CERTS_CRT")" "$(dirname "$CERTS_KEY")"
+cp /run/secrets/server_crt "$CERTS_CRT"
+cp /run/secrets/server_key "$CERTS_KEY"
+chmod 644 "$CERTS_CRT"
+chmod 600 "$CERTS_KEY"
 
-    # Generate server ECDSA key
-    openssl ecparam -genkey -name prime256v1 -out "${CERTS_KEY}" 2>/dev/null
-
-    # Create CSR
-    openssl req -new \
-        -key  "${CERTS_KEY}" \
-        -out  /tmp/server.csr \
-        -subj "/C=FR/ST=IDF/L=Paris/O=42/OU=42/CN=${DOMAIN_NAME}"
-
-    # Create SAN extension file
-    cat > /tmp/san.cnf <<-EOF
-		authorityKeyIdentifier=keyid,issuer
-		basicConstraints=CA:FALSE
-		keyUsage=digitalSignature,nonRepudiation,keyEncipherment,dataEncipherment
-		subjectAltName=@alt_names
-		[alt_names]
-		DNS.1=${DOMAIN_NAME}
-		DNS.2=localhost
-		IP.1=127.0.0.1
-	EOF
-
-    # Sign with CA
-    openssl x509 -req -days 365 \
-        -in      /tmp/server.csr \
-        -CA      "${CA_CRT}" \
-        -CAkey   "${CA_KEY}" \
-        -CAcreateserial \
-        -out     "${CERTS_CRT}" \
-        -extfile /tmp/san.cnf 2>/dev/null
-
-    rm -f /tmp/server.csr /tmp/san.cnf
-    echo "[entrypoint] Server certificate created and signed by local CA."
-fi
-
-# ── Render nginx config template (only substitute OUR variables) ─────
-envsubst '${DOMAIN_NAME} ${CERTS_CRT} ${CERTS_KEY}' \
-    < /etc/nginx/http.d/default.conf.template \
+# ── Render the vhost template ────────────────────────────────────────
+# sed substitutes only our three placeholders; nginx runtime variables
+# ($uri, $fastcgi_script_name, ...) are left untouched.
+sed -e "s|\${DOMAIN_NAME}|${DOMAIN_NAME}|g" \
+    -e "s|\${CERTS_CRT}|${CERTS_CRT}|g" \
+    -e "s|\${CERTS_KEY}|${CERTS_KEY}|g" \
+    /etc/nginx/http.d/default.conf.template \
     > /etc/nginx/http.d/default.conf
 
-echo "[entrypoint] Starting NGINX …"
+echo "[entrypoint] Starting NGINX ..."
 exec nginx -g "daemon off;"

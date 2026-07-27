@@ -1,0 +1,28 @@
+<h2>One door, three rooms</h2>
+[arch]
+<p>Every request enters through nginx on port 443 — TLS 1.2/1.3 is terminated there, static assets are served straight from the shared read-only volume, and only <code>.php</code> requests travel deeper over FastCGI. WordPress runs php-fpm 8.4 workers as <code>nobody</code>; MariaDB 11.4 answers on the internal network only. Neither app container is reachable from the host.</p>
+
+<h2>The bridge network</h2>
+<p>A single user-defined bridge network, <code>inception</code>, connects the three containers. Docker's embedded DNS resolves service names — nginx forwards to <code>wordpress:9000</code>, WordPress connects to <code>mariadb:3306</code>. <code>network_mode: host</code> and <code>links:</code> are forbidden by the subject and absent; the suite verifies both.</p>
+
+<h2>Named volumes at a fixed host path</h2>
+<p>Two top-level named volumes satisfy both subject rules at once — they are real named volumes (services never bind-mount host paths), and their data lives inside <code>/home/dlesieur/data</code> via the local driver's <code>device</code> option:</p>
+<table>
+<tr><th>volume</th><th>host path</th><th>contents</th></tr>
+<tr><td><code>inception_db_data</code></td><td><code>/home/dlesieur/data/mariadb</code></td><td>MariaDB data directory</td></tr>
+<tr><td><code>inception_wp_data</code></td><td><code>/home/dlesieur/data/wordpress</code></td><td>WordPress core, themes, uploads</td></tr>
+</table>
+[cmd]docker volume inspect inception_db_data[/cmd]
+
+<h2>Secrets, not environment variables</h2>
+<p>Compose mounts each credential file at <code>/run/secrets/&lt;name&gt;</code> (mode 0400) inside exactly the services that need it. Non-sensitive configuration — domain, database name, usernames — travels as environment variables from <code>srcs/.env</code>. The TLS server key is also a secret; the CA private key stays on the host, because <code>make trust</code> makes browsers trust that CA.</p>
+
+<h2>Startup order by real healthchecks</h2>
+<p><code>depends_on: condition: service_healthy</code> chains the stack. MariaDB is “healthy” only when the <em>application user</em> can connect over TCP — exactly what WordPress needs. WordPress is healthy when php-fpm accepts FastCGI connections. All checks poll at 500ms during startup (<code>--start-interval</code>), so each layer starts the moment the one below is usable:</p>
+[term_window title="docker compose up -d"]
+[out]✔ Container mariadb    Healthy   3.9s
+✔ Container wordpress  Healthy   6.1s
+✔ Container nginx      Started   6.3s[/out]
+[/term_window]
+
+[callout type="ok" title="restart policy"]All services run with <code>restart: unless-stopped</code> — kill any PID 1 and the container is back in seconds, yet <code>docker stop</code> still means stop. Chosen over <code>on-failure</code> deliberately: a SIGTERM'd daemon exits cleanly (code 0), which on-failure would never revive.[/callout]
