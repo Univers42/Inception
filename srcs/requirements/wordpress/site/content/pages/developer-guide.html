@@ -1,7 +1,7 @@
 <h2>Zero-friction setup</h2>
 <p>A fresh clone needs exactly one command. <code>make setup</code> (run automatically) provisions every missing piece and never overwrites existing files: <code>srcs/.env</code> from the template, random passwords into <code>secrets/</code>, the <code>/etc/hosts</code> entry, and the full TLS chain — a local Root CA plus a host-signed server certificate.</p>
 [term_window title="dlesieur@inception:~/inception"]
-[cmd path="~/inception"]git clone <repo> inception && cd inception && make[/cmd]
+[cmd path="~/inception"]git clone &lt;repo&gt; inception && cd inception && make[/cmd]
 [out]✔ srcs/.env generated          ✔ secrets generated (random)
 ✔ CA + server cert issued      ✔ 3 images built
 ✔ stack healthy → https://dlesieur.42.fr[/out]
