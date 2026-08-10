@@ -145,7 +145,7 @@ run_wp: up
 	@echo "\n\033[1;34m━━ Themes \033[0m"
 	@$(WP) theme list --fields=name,status,version
 	@echo "\n\033[1;34m━━ PHP / OPcache \033[0m"
-	@$(WP) eval 'echo "PHP " . PHP_VERSION . "\n"; echo "OPcache: " . (function_exists("opcache_get_status") && opcache_get_status() ? "enabled" : "disabled") . "\n";'
+	@$(WP) eval 'echo "PHP " . PHP_VERSION . "\n"; echo "OPcache: " . (extension_loaded("Zend OPcache") && ini_get("opcache.enable") ? "enabled (php-fpm; CLI is off by design)" : "disabled") . "\n";'
 	@echo ""
 	@echo "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
 	@echo "\033[1;32m✔ All services are up and healthy!\033[0m"
