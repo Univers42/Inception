@@ -526,6 +526,125 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════
+section "Tags, credentials, entrypoint and layout"
+# ═════════════════════════════════════════════════════════════════════
+
+# T24 — the latest tag is prohibited
+LATESTUSE=$(grep -hnE '(^FROM.*:latest|image:.*:latest)' $DOCKERFILES "$COMPOSE_FILE" 2>/dev/null || true)
+UNTAGGED=$(grep -h '^FROM' $DOCKERFILES | awk '{print $2}' | grep -v ':' || true)
+if [ -n "$LATESTUSE" ]; then
+    fail T24 "the ':latest' tag is used" "$LATESTUSE"
+elif [ -n "$UNTAGGED" ]; then
+    fail T24 "an untagged image implies :latest" "$UNTAGGED"
+else
+    pass T24 "no ':latest' tag, and every image reference is pinned" \
+        "bases: $(grep -h '^FROM' $DOCKERFILES | awk '{print $2}' | sort -u | tr '\n' ' ')| images: nginx/wordpress/mariadb:inception"
+fi
+
+# T25 — no password in the Dockerfiles
+PWD_IN_DF=$(grep -hinE 'pass(word)?[[:space:]]*=|ENV[[:space:]]+.*(PASS|SECRET|TOKEN)' $DOCKERFILES || true)
+if [ -n "$PWD_IN_DF" ]; then
+    fail T25 "password-like content in a Dockerfile" "$PWD_IN_DF"
+else
+    pass T25 "no password appears in any Dockerfile" "no literal passwords and no credential ENV lines in the three build files"
+fi
+
+# T26 — environment variables are used
+ok=1
+[ -f srcs/.env ] || { ok=0; fail T26 "srcs/.env does not exist"; }
+grep -q '\${DOMAIN_NAME}' "$COMPOSE_FILE" || { ok=0; fail T26 "compose does not interpolate \${DOMAIN_NAME}"; }
+NVARS=$(grep -cE '^[A-Z_]+=' srcs/.env 2>/dev/null || echo 0)
+if [ $RUNNING -eq 1 ]; then
+    docker exec wordpress printenv DOMAIN_NAME >/dev/null 2>&1 || { ok=0; fail T26 "DOMAIN_NAME is not present in the wordpress container"; }
+    docker exec mariadb printenv MYSQL_DATABASE >/dev/null 2>&1 || { ok=0; fail T26 "MYSQL_DATABASE is not present in the mariadb container"; }
+fi
+[ $ok -eq 1 ] && pass T26 "configuration is delivered through environment variables" \
+    "$NVARS variables in srcs/.env, interpolated by compose and present in the containers"
+
+# T27 — Docker secrets carry the credentials
+ok=1
+grep -q '^secrets:' "$COMPOSE_FILE" || { ok=0; fail T27 "no top-level secrets: section in the compose file"; }
+for f in db_password db_root_password credentials; do
+    [ -f "secrets/$f.txt" ] || { ok=0; fail T27 "secrets/$f.txt is missing"; }
+done
+if [ $RUNNING -eq 1 ]; then
+    docker exec mariadb   test -f /run/secrets/db_root_password || { ok=0; fail T27 "db_root_password is not mounted in mariadb"; }
+    docker exec wordpress test -f /run/secrets/credentials      || { ok=0; fail T27 "credentials is not mounted in wordpress"; }
+    docker exec nginx     test -f /run/secrets/server_key       || { ok=0; fail T27 "server_key is not mounted in nginx"; }
+    ENVLEAK=$(docker inspect $SERVICES --format '{{.Name}} {{.Config.Env}}' | grep -iE 'PASS|SECRET|TOKEN' || true)
+    [ -n "$ENVLEAK" ] && { ok=0; fail T27 "a credential is exposed through the environment" "$ENVLEAK"; }
+    # the CA private key must never enter a container
+    for c in $SERVICES; do
+        docker exec "$c" sh -c 'ls /run/secrets/ 2>/dev/null' | grep -qi '^ca' && { ok=0; fail T27 "CA material is mounted in $c"; }
+    done
+fi
+[ $ok -eq 1 ] && pass T27 "credentials are delivered as Docker secrets only" \
+    "mounted under /run/secrets, absent from every container environment, CA private key never leaves the host"
+
+# T28 — nginx is the only entrypoint, 443 only
+ok=1
+for s in wordpress mariadb; do
+    svc_block "$s" | grep -q 'ports:' && { ok=0; fail T28 "service $s publishes a port"; }
+done
+NGP=$(svc_block nginx | sed -n '/ports:/,/^    [a-z]/p' | grep -oE '"[0-9]+:[0-9]+"' | tr -d '"')
+[ "$NGP" = "443:443" ] || { ok=0; fail T28 "nginx must publish exactly 443:443" "found: ${NGP:-none}"; }
+if [ $RUNNING -eq 1 ]; then
+    OTHER=$(docker ps --format '{{.Names}} {{.Ports}}' | grep -E '^(wordpress|mariadb) ' | grep -oE '0\.0\.0\.0:[0-9]+' || true)
+    [ -n "$OTHER" ] && { ok=0; fail T28 "an application container publishes a port" "$OTHER"; }
+fi
+[ $ok -eq 1 ] && pass T28 "nginx is the only service publishing a port, and only 443" \
+    "wordpress and mariadb publish nothing; TLS restricted to 1.2/1.3 (see T07)"
+
+# T28b — the published port is actually reachable from the host
+if [ $RUNNING -eq 1 ]; then
+    PUB=$(docker ps --format '{{.Names}} {{.Ports}}' | grep '^nginx ' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | sort -u | tr '\n' ' ')
+    if [ "$PROBE_MODE" = "host" ]; then
+        pass T28b "https://$DOMAIN reaches nginx from the host" "published: ${PUB:-none}"
+    elif [ -z "$PUB" ]; then
+        block T28b "nginx is not publishing 443 on this host" \
+            "rootless Docker refuses privileged ports (ip_unprivileged_port_start=$(sysctl -n net.ipv4.ip_unprivileged_port_start 2>/dev/null)); fix: sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443"
+    else
+        block T28b "443 is published but not reachable at https://$DOMAIN from the host" "published: $PUB — check that $DOMAIN resolves (T23)"
+    fi
+else
+    block T28b "stack is down — start it with 'make up'"
+fi
+
+# T29 — the directory structure matches the subject's example
+ok=1; missing=""
+for p in Makefile secrets srcs srcs/docker-compose.yml srcs/.env srcs/requirements \
+         srcs/requirements/nginx/Dockerfile srcs/requirements/nginx/conf srcs/requirements/nginx/tools \
+         srcs/requirements/wordpress/Dockerfile srcs/requirements/wordpress/conf srcs/requirements/wordpress/tools \
+         srcs/requirements/mariadb/Dockerfile srcs/requirements/mariadb/conf srcs/requirements/mariadb/tools \
+         secrets/credentials.txt secrets/db_password.txt secrets/db_root_password.txt; do
+    [ -e "$p" ] || { ok=0; missing="$missing $p"; }
+done
+[ -n "$missing" ] && fail T29 "the expected layout is incomplete" "missing:$missing"
+[ $ok -eq 1 ] && pass T29 "the repository matches the subject's directory structure" \
+    "Makefile, secrets/{credentials,db_password,db_root_password}.txt, srcs/{docker-compose.yml,.env}, srcs/requirements/<service>/{Dockerfile,conf,tools}"
+
+# T30 — credentials live in local files and are ignored by git
+ok=1
+for p in secrets srcs/.env; do
+    git check-ignore -q "$p" 2>/dev/null || git check-ignore -q "$p/x" 2>/dev/null \
+        || { ok=0; fail T30 "'$p' is not git-ignored"; }
+done
+TRACKED=$(git ls-files | grep -E '(^|/)secrets/|srcs/\.env$|\.(key|crt|pem)$' || true)
+[ -n "$TRACKED" ] && { ok=0; fail T30 "a sensitive file is tracked by git" "$TRACKED"; }
+HIST=$(git log --all --name-only --format='' 2>/dev/null | grep -E '(^|/)secrets/|srcs/\.env$|\.(key|pem)$' | sort -u || true)
+[ -n "$HIST" ] && { ok=0; fail T30 "a sensitive file exists in git history" "$HIST"; }
+[ $ok -eq 1 ] && pass T30 "credentials stay in local, git-ignored files" \
+    "secrets/ and srcs/.env ignored, never tracked, absent from history"
+
+# T31 — variables such as the domain live in an env file
+if [ -f srcs/.env ] && grep -q "^DOMAIN_NAME=$DOMAIN" srcs/.env; then
+    pass T31 "environment variables are stored in srcs/.env" \
+        "DOMAIN_NAME=$DOMAIN plus $(grep -cE '^[A-Z_]+=' srcs/.env) variables total; generated from .env.example by 'make setup'"
+else
+    fail T31 "srcs/.env must define DOMAIN_NAME=$DOMAIN"
+fi
+
+# ═════════════════════════════════════════════════════════════════════
 printf "\n${BLU}══ Summary ══${RST}  ${GRN}%d passed${RST}  ${RED}%d failed${RST}  ${YLW}%d blocked${RST}\n" \
     "$PASS" "$FAIL" "$BLOCK"
 [ "$PROBE_MODE" = "network" ] && printf "${DIM}HTTPS checks ran from inside the docker network: this host cannot bind :443 (rootless Docker).${RST}\n"
