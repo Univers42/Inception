@@ -251,6 +251,89 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════
+section "Volumes and network"
+# ═════════════════════════════════════════════════════════════════════
+
+vol_block() { awk '/^volumes:/,/^networks:/' "$COMPOSE_FILE"; }
+
+# T10 — a volume holding the WordPress database
+if vol_block | grep -q '^  db_data:'; then
+    if [ $RUNNING -eq 1 ]; then
+        if docker exec mariadb test -d /var/lib/mysql/mysql \
+           && docker inspect mariadb --format '{{range .Mounts}}{{.Name}}:{{.Destination}} {{end}}' | grep -q 'inception_db_data:/var/lib/mysql'; then
+            NT=$(docker exec mariadb sh -c 'MYSQL_PWD="$(cat /run/secrets/db_password)" mariadb -u "$MYSQL_USER" "$MYSQL_DATABASE" -N -e "SHOW TABLES LIKE \"wp_%\";"' 2>/dev/null | wc -l)
+            pass T10 "a volume holds the WordPress database" "inception_db_data mounted at /var/lib/mysql, $NT wp_* tables present"
+        else
+            fail T10 "db_data is not mounted at /var/lib/mysql or the datadir is empty"
+        fi
+    else
+        pass T10 "db_data volume declared for the database" "runtime contents need the stack up"
+    fi
+else
+    fail T10 "no db_data volume declared"
+fi
+
+# T11 — a second volume holding the website files
+if vol_block | grep -q '^  wp_data:'; then
+    if [ $RUNNING -eq 1 ]; then
+        if docker exec wordpress test -f /var/www/html/wp-config.php \
+           && docker inspect wordpress --format '{{range .Mounts}}{{.Name}}:{{.Destination}} {{end}}' | grep -q 'inception_wp_data:/var/www/html'; then
+            pass T11 "a second volume holds the website files" "inception_wp_data mounted at /var/www/html, WordPress core present"
+        else
+            fail T11 "wp_data is not mounted at /var/www/html or the site is missing"
+        fi
+    else
+        pass T11 "wp_data volume declared for the site files" "runtime contents need the stack up"
+    fi
+else
+    fail T11 "no wp_data volume declared"
+fi
+
+# T12 — named volumes only, no bind mounts for these two
+ok=1
+grep -q '^volumes:' "$COMPOSE_FILE" || { ok=0; fail T12 "no top-level volumes: section"; }
+HOSTMOUNT=$(grep -nE '^\s+- (/|\./|~)[^ ]*:' "$COMPOSE_FILE" || true)
+[ -n "$HOSTMOUNT" ] && { ok=0; fail T12 "a service bind-mounts a host path directly" "$HOSTMOUNT"; }
+if [ $RUNNING -eq 1 ]; then
+    # Docker implements file-based secrets as bind mounts; only the two
+    # data mounts are inspected here.
+    BADTYPE=$(docker inspect $SERVICES \
+        --format '{{$n := .Name}}{{range .Mounts}}{{if or (eq .Destination "/var/lib/mysql") (eq .Destination "/var/www/html")}}{{$n}}:{{.Type}} {{end}}{{end}}' \
+        | tr ' ' '\n' | grep -v ':volume$' | grep -v '^$' || true)
+    [ -n "$BADTYPE" ] && { ok=0; fail T12 "a data mount is not a named volume" "$BADTYPE"; }
+fi
+[ $ok -eq 1 ] && pass T12 "both persistent stores are Docker named volumes, not bind mounts" \
+    "no service mounts a host path; data mounts report type=volume"
+
+# T13 — both volumes store their data inside /home/<login>/data
+ok=1; devs=""
+for v in db_data wp_data; do
+    dev=$(vol_block | awk -v tgt="  $v:" '$0==tgt{f=1;next} f && /^  [a-z_]+:/{f=0} f' | sed -n 's/.*device: *//p')
+    case "$dev" in
+        "$DATA_DIR"/*) devs="$devs $v→$dev" ;;
+        *) ok=0; fail T13 "volume $v stores data outside $DATA_DIR" "device: ${dev:-none}" ;;
+    esac
+done
+[ $ok -eq 1 ] && pass T13 "both named volumes are rooted in $DATA_DIR" "$devs"
+
+# T15 — a docker network connects the containers
+ok=1
+grep -q '^networks:' "$COMPOSE_FILE" || { ok=0; fail T15 "no top-level networks: section"; }
+if [ $RUNNING -eq 1 ]; then
+    DRV=$(docker network inspect --format '{{.Driver}}' inception 2>/dev/null)
+    [ "$DRV" = "bridge" ] || { ok=0; fail T15 "network 'inception' is not a bridge network" "driver: ${DRV:-missing}"; }
+    ATT=$(docker network inspect --format '{{range .Containers}}{{.Name}} {{end}}' inception 2>/dev/null)
+    for c in $SERVICES; do
+        printf '%s' "$ATT" | grep -q "$c" || { ok=0; fail T15 "$c is not attached to the inception network"; }
+    done
+    docker exec wordpress nc -z mariadb 3306 2>/dev/null || { ok=0; fail T15 "wordpress cannot reach mariadb:3306 by service name"; }
+    docker exec nginx nc -z wordpress 9000 2>/dev/null || { ok=0; fail T15 "nginx cannot reach wordpress:9000 by service name"; }
+    [ $ok -eq 1 ] && pass T15 "a bridge network connects all three containers" "service-name DNS works: wordpress→mariadb:3306, nginx→wordpress:9000"
+else
+    [ $ok -eq 1 ] && block T15 "network declared, but connectivity needs the stack up"
+fi
+
+# ═════════════════════════════════════════════════════════════════════
 printf "\n${BLU}══ Summary ══${RST}  ${GRN}%d passed${RST}  ${RED}%d failed${RST}  ${YLW}%d blocked${RST}\n" \
     "$PASS" "$FAIL" "$BLOCK"
 [ "$PROBE_MODE" = "network" ] && printf "${DIM}HTTPS checks ran from inside the docker network: this host cannot bind :443 (rootless Docker).${RST}\n"
