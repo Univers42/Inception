@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Inception Kit
  * Description:       Reusable terminal-styled components (shortcodes + helpers) powering the Inception documentation blog.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Author:            dlesieur
  * License:           MIT
  */
