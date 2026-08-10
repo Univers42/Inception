@@ -198,3 +198,5 @@ at the top level of the compose file with `driver: local` and a `device` option,
 their data lives at the deterministic host path `/home/dlesieur/data/` required by the
 subject while remaining proper Docker named volumes — no service ever bind-mounts a
 host path directly.
+
+https://claude.ai/code/artifact/eb6cda86-9cb1-4c06-9687-c7d755273291?via=auto_preview

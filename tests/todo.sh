@@ -23,10 +23,11 @@ else
     RED=''; GRN=''; YLW=''; BLU=''; DIM=''; RST=''
 fi
 
-PASS=0; FAIL=0; BLOCK=0
+PASS=0; FAIL=0; BLOCK=0; TODO=0
 pass()  { PASS=$((PASS+1));  printf "  ${GRN}✔${RST} %-6s %s\n" "$1" "$2"; [ -n "${3:-}" ] && printf "         ${DIM}%s${RST}\n" "$3"; return 0; }
 fail()  { FAIL=$((FAIL+1));  printf "  ${RED}✘${RST} %-6s %s\n" "$1" "$2"; [ -n "${3:-}" ] && printf "         ${DIM}%s${RST}\n" "$3"; return 0; }
 block() { BLOCK=$((BLOCK+1)); printf "  ${YLW}⊘${RST} %-6s %s\n" "$1" "$2"; [ -n "${3:-}" ] && printf "         ${DIM}%s${RST}\n" "$3"; return 0; }
+todo()  { TODO=$((TODO+1));  printf "  ${DIM}○ %-6s %s${RST}\n" "$1" "$2"; [ -n "${3:-}" ] && printf "         ${DIM}%s${RST}\n" "$3"; return 0; }
 section() { printf "\n${BLU}%s${RST}\n" "$1"; }
 
 # ── Context ──────────────────────────────────────────────────────────
@@ -645,8 +646,57 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════
-printf "\n${BLU}══ Summary ══${RST}  ${GRN}%d passed${RST}  ${RED}%d failed${RST}  ${YLW}%d blocked${RST}\n" \
-    "$PASS" "$FAIL" "$BLOCK"
+section "Bonus (optional — not attempted)"
+# ═════════════════════════════════════════════════════════════════════
+# Reported, never silently skipped: the mandatory part must be perfect
+# before any of this counts, and a half-finished bonus scores nothing.
+
+svc_exists() { awk '/^services:/{f=1;next} /^[a-z]/{f=0} f' "$COMPOSE_FILE" | grep -q "^  $1:"; }
+
+bonus_check() {
+    id="$1"; name="$2"; svc="$3"; desc="$4"
+    if svc_exists "$svc"; then
+        if [ -f "srcs/requirements/$svc/Dockerfile" ]; then
+            pass "$id" "$name is implemented" "own Dockerfile at srcs/requirements/$svc/, own service in the compose file"
+        else
+            fail "$id" "$name is declared as a service but has no Dockerfile" "each bonus service needs srcs/requirements/$svc/Dockerfile"
+        fi
+    else
+        todo "$id" "$name — not implemented" "$desc"
+    fi
+}
+
+NSERV=$(awk '/^services:/{f=1;next} /^[a-z]/{f=0} f && /^  [a-zA-Z0-9_-]+:[[:space:]]*$/{n++} END{print n+0}' "$COMPOSE_FILE")
+if [ "$NSERV" -le 3 ]; then
+    todo B01 "no additional service beyond the mandatory three" \
+        "the compose file declares $NSERV services (nginx, wordpress, mariadb)"
+else
+    EXTRA=$(awk '/^services:/{f=1;next} /^[a-z]/{f=0} f && /^  [a-zA-Z0-9_-]+:[[:space:]]*$/{gsub(/[ :]/,"");print}' "$COMPOSE_FILE" \
+            | grep -vE '^(nginx|wordpress|mariadb)$' | tr '\n' ' ')
+    ok=1
+    for s in $EXTRA; do
+        [ -f "srcs/requirements/$s/Dockerfile" ] || { ok=0; fail B01 "bonus service '$s' has no Dockerfile"; }
+    done
+    [ $ok -eq 1 ] && pass B01 "every additional service has its own Dockerfile and container" "extra services: $EXTRA"
+fi
+
+bonus_check B02 "redis cache"  redis   "would need srcs/requirements/redis/ plus the WordPress object-cache drop-in"
+bonus_check B03 "FTP server"   ftp     "would need srcs/requirements/ftp/ pointing at the wordpress volume"
+bonus_check B05 "Adminer"      adminer "would need srcs/requirements/adminer/ and an extra published port"
+
+# B04 — a static showcase site, PHP excluded
+if [ -d srcs/requirements/static ] || svc_exists static; then
+    pass B04 "a static showcase site is implemented" "srcs/requirements/static/"
+else
+    todo B04 "static showcase website — not implemented" \
+        "note: the WordPress documentation site under site/ does not satisfy this; the subject excludes PHP for this bonus"
+fi
+
+todo B06 "free-choice service — not implemented" "needs a justification at the defense, so pick one you can defend"
+
+# ═════════════════════════════════════════════════════════════════════
+printf "\n${BLU}══ Summary ══${RST}  ${GRN}%d passed${RST}  ${RED}%d failed${RST}  ${YLW}%d blocked${RST}  ${DIM}%d not implemented${RST}\n" \
+    "$PASS" "$FAIL" "$BLOCK" "$TODO"
 [ "$PROBE_MODE" = "network" ] && printf "${DIM}HTTPS checks ran from inside the docker network: this host cannot bind :443 (rootless Docker).${RST}\n"
 [ $FAIL -gt 254 ] && exit 254
 exit $FAIL
