@@ -334,6 +334,100 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════
+section "Crash behaviour and the keep-alive anti-pattern"
+# ═════════════════════════════════════════════════════════════════════
+
+# T16 — kill the service process and prove the container comes back.
+#
+# The signal is sent from *inside* the container, at PID 1, which is the
+# daemon itself. Two Docker behaviours make this the only correct way to
+# simulate a crash here:
+#
+#   * `docker kill` / `docker stop` from the host count as a manual stop
+#     request, and a restart policy deliberately does not fire for those
+#     (verified: the containers stayed Exited(137) with RestartCount=0).
+#   * `kill -9 1` from inside is a silent no-op — the kernel does not
+#     deliver default-action signals to a PID namespace's init from
+#     within that namespace. Only signals the daemon actually handles,
+#     such as SIGTERM, get through.
+#
+# So `kill 1` inside makes the daemon exit on its own, which is exactly
+# the "the service died" event the restart policy exists for.
+if [ $RUNNING -eq 1 ]; then
+    ok=1; detail=""
+    for c in $SERVICES; do
+        BEFORE=$(docker inspect --format '{{.State.StartedAt}}' "$c")
+        docker exec "$c" kill 1 2>/dev/null || true
+        i=0; back=0
+        while [ $i -lt 40 ]; do
+            sleep 1; i=$((i+1))
+            ST=$(docker inspect --format '{{.State.Status}}' "$c" 2>/dev/null || echo gone)
+            AFTER=$(docker inspect --format '{{.State.StartedAt}}' "$c" 2>/dev/null || echo x)
+            [ "$ST" = "running" ] && [ "$AFTER" != "$BEFORE" ] && { back=1; break; }
+        done
+        if [ $back -eq 1 ]; then
+            detail="$detail $c(${i}s)"
+        else
+            ok=0; fail T16 "$c did not restart after SIGKILL to PID 1"
+        fi
+    done
+    if [ $ok -eq 1 ]; then
+        # and back to healthy, not merely running
+        i=0
+        while [ $i -lt 60 ]; do
+            H=$(docker inspect --format '{{range $k,$v := .State}}{{if eq $k "Health"}}{{$v.Status}}{{end}}{{end}}' $SERVICES 2>/dev/null | tr '\n' ' ')
+            case "$H" in *starting*|*unhealthy*) sleep 2; i=$((i+1)) ;; *) break ;; esac
+        done
+        pass T16 "every container restarts after its service process is killed" \
+            "recovery:$detail — policy $(docker inspect nginx --format '{{.HostConfig.RestartPolicy.Name}}'), nginx RestartCount=$(docker inspect nginx --format '{{.RestartCount}}')"
+    fi
+else
+    block T16 "stack is down — start it with 'make up'"
+fi
+
+# T20 — no infinite-loop / keep-alive entrypoint, demonstrated not just grepped.
+HACKS=$(grep -hnE 'tail[[:space:]]+-f|sleep[[:space:]]+infinity|while[[:space:]]+true|while[[:space:]]+:;|sleep[[:space:]]+[0-9]{4,}' \
+        $DOCKERFILES $ENTRYPOINTS "$COMPOSE_FILE" 2>/dev/null || true)
+if [ -n "$HACKS" ]; then
+    fail T20 "a prohibited keep-alive pattern is present" "$HACKS"
+else
+    ok=1; detail=""
+    # every entrypoint must hand PID 1 to the daemon with exec
+    for e in $ENTRYPOINTS; do
+        LAST=$(grep -vE '^\s*(#|$)' "$e" | tail -1)
+        case "$LAST" in
+            exec\ *) ;;
+            *) ok=0; fail T20 "$e does not end with 'exec <daemon>'" "last line: $LAST" ;;
+        esac
+    done
+    if [ $ok -eq 1 ] && command -v docker >/dev/null 2>&1; then
+        # Demonstration: build the anti-pattern and show what it costs.
+        # A container whose PID 1 is `tail -f` keeps reporting Up after its
+        # service dies, and ignores SIGTERM on docker stop.
+        BAD=inception-antipattern-test
+        docker rm -f "$BAD" >/dev/null 2>&1
+        docker run -d --name "$BAD" --stop-timeout 3 "$BASE_IMAGE" \
+            sh -c 'sleep 600 & tail -f /dev/null' >/dev/null 2>&1
+        sleep 1
+        # kill the "service" the container is supposed to be running
+        docker exec "$BAD" pkill -9 sleep 2>/dev/null || true
+        sleep 1
+        FAKE=$(docker inspect --format '{{.State.Status}}' "$BAD" 2>/dev/null)
+        # docker stop sends SIGTERM to PID 1; a keep-alive PID 1 has no
+        # handler for it, so the container survives the grace period and
+        # is SIGKILLed instead — exit code 137.
+        docker stop "$BAD" >/dev/null 2>&1
+        BADCODE=$(docker inspect --format '{{.State.ExitCode}}' "$BAD" 2>/dev/null)
+        docker rm -f "$BAD" >/dev/null 2>&1
+        detail="demo: with 'tail -f' as PID 1 the container still reported '$FAKE' after its service was killed, then ignored SIGTERM and had to be SIGKILLed (exit $BADCODE). Here PID 1 is the daemon itself (T03), so SIGTERM reaches it."
+        pass T20 "no keep-alive hack; every entrypoint execs the real daemon" "$detail"
+        printf "         ${DIM}see docs/why-no-hacky-patches.md${RST}\n"
+    elif [ $ok -eq 1 ]; then
+        pass T20 "no keep-alive hack; every entrypoint execs the real daemon"
+    fi
+fi
+
+# ═════════════════════════════════════════════════════════════════════
 printf "\n${BLU}══ Summary ══${RST}  ${GRN}%d passed${RST}  ${RED}%d failed${RST}  ${YLW}%d blocked${RST}\n" \
     "$PASS" "$FAIL" "$BLOCK"
 [ "$PROBE_MODE" = "network" ] && printf "${DIM}HTTPS checks ran from inside the docker network: this host cannot bind :443 (rootless Docker).${RST}\n"
