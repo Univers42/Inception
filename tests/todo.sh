@@ -184,6 +184,73 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════
+section "The three service containers"
+# ═════════════════════════════════════════════════════════════════════
+
+# T07 — NGINX with TLSv1.2 / TLSv1.3 only
+NGINX_CONF=srcs/requirements/nginx/conf/nginx.conf
+SSLP=$(sed -n 's/^[[:space:]]*ssl_protocols[[:space:]]*//p' "$NGINX_CONF" | tr -d ';' | tr -s ' ')
+case "$SSLP" in
+    "TLSv1.2 TLSv1.3"|"TLSv1.3 TLSv1.2") static_tls=1 ;;
+    *) static_tls=0 ;;
+esac
+if [ $static_tls -eq 0 ]; then
+    fail T07 "ssl_protocols must be exactly 'TLSv1.2 TLSv1.3'" "found: ${SSLP:-none}"
+elif [ "$PROBE_MODE" = "none" ]; then
+    block T07 "declared TLSv1.2+TLSv1.3 only, but the handshake matrix needs the stack up" "start it with 'make up'"
+else
+    matrix=""; ok=1
+    for v in tls1 tls1_1; do
+        if probe "echo | openssl s_client -connect \$D:443 -servername \$D -$v 2>/dev/null | grep -qE 'Cipher is [A-Z]'"; then
+            ok=0; matrix="$matrix $v=ACCEPTED"
+        else
+            matrix="$matrix $v=rejected"
+        fi
+    done
+    for v in tls1_2 tls1_3; do
+        if probe "echo | openssl s_client -connect \$D:443 -servername \$D -$v 2>/dev/null | grep -qE 'Cipher is [A-Z]'"; then
+            matrix="$matrix $v=accepted"
+        else
+            ok=0; matrix="$matrix $v=FAILED"
+        fi
+    done
+    if [ $ok -eq 1 ]; then
+        pass T07 "nginx negotiates TLSv1.2/1.3 only" "handshake matrix:$matrix $(probe_note)"
+    else
+        fail T07 "TLS protocol enforcement is wrong" "handshake matrix:$matrix"
+    fi
+fi
+
+# T08 — WordPress + php-fpm, installed and configured, without nginx
+if [ $RUNNING -eq 1 ]; then
+    ok=1; detail=""
+    docker exec wordpress sh -c 'command -v php-fpm84' >/dev/null 2>&1 || { ok=0; fail T08 "php-fpm84 not installed in the wordpress container"; }
+    docker exec wordpress sh -c 'command -v nginx' >/dev/null 2>&1 && { ok=0; fail T08 "nginx is present in the wordpress container"; }
+    docker exec wordpress test -f /var/www/html/wp-config.php || { ok=0; fail T08 "wp-config.php missing — WordPress is not configured"; }
+    WPV=$(docker exec wordpress wp --allow-root --path=/var/www/html core version 2>/dev/null)
+    [ -n "$WPV" ] || { ok=0; fail T08 "WordPress core not installed"; }
+    docker exec wordpress sh -c 'php-fpm84 -t' >/dev/null 2>&1 || { ok=0; fail T08 "php-fpm configuration does not validate"; }
+    PHPV=$(docker exec wordpress php -r 'echo PHP_VERSION;' 2>/dev/null)
+    detail="WordPress $WPV on php-fpm $PHPV, config valid, no nginx binary"
+    [ $ok -eq 1 ] && pass T08 "wordpress container runs WordPress + php-fpm only" "$detail"
+else
+    block T08 "stack is down — start it with 'make up'"
+fi
+
+# T09 — MariaDB only, without nginx
+if [ $RUNNING -eq 1 ]; then
+    ok=1
+    docker exec mariadb sh -c 'command -v mariadbd' >/dev/null 2>&1 || { ok=0; fail T09 "mariadbd not installed in the mariadb container"; }
+    docker exec mariadb sh -c 'command -v nginx' >/dev/null 2>&1 && { ok=0; fail T09 "nginx is present in the mariadb container"; }
+    docker exec mariadb sh -c 'command -v php-fpm84 || command -v php' >/dev/null 2>&1 && { ok=0; fail T09 "PHP is present in the mariadb container"; }
+    DBV=$(docker exec mariadb sh -c 'MYSQL_PWD="$(cat /run/secrets/db_password)" mariadb -u "$MYSQL_USER" -N -e "SELECT VERSION();"' 2>/dev/null)
+    [ -n "$DBV" ] || { ok=0; fail T09 "the application user cannot query MariaDB"; }
+    [ $ok -eq 1 ] && pass T09 "mariadb container runs MariaDB only" "server $DBV, reachable as the application user; no nginx, no PHP"
+else
+    block T09 "stack is down — start it with 'make up'"
+fi
+
+# ═════════════════════════════════════════════════════════════════════
 printf "\n${BLU}══ Summary ══${RST}  ${GRN}%d passed${RST}  ${RED}%d failed${RST}  ${YLW}%d blocked${RST}\n" \
     "$PASS" "$FAIL" "$BLOCK"
 [ "$PROBE_MODE" = "network" ] && printf "${DIM}HTTPS checks ran from inside the docker network: this host cannot bind :443 (rootless Docker).${RST}\n"
