@@ -48,11 +48,11 @@ setup:
 		chmod 600 $(SECRETS)/credentials.txt; \
 		echo "[setup] Generated random $(SECRETS)/credentials.txt (line 1 = WP admin, line 2 = editor)"; \
 	fi
+	@$(MAKE) --no-print-directory certs
 	@if ! grep -q "$(LOGIN).42.fr" /etc/hosts 2>/dev/null; then \
 		echo "127.0.0.1 $(LOGIN).42.fr" | sudo tee -a /etc/hosts > /dev/null \
 		|| echo "\033[1;33m[setup] WARN: could not write /etc/hosts (sudo unavailable) — add this line manually:\n           127.0.0.1 $(LOGIN).42.fr\033[0m"; \
 	fi
-	@$(MAKE) --no-print-directory certs
 
 # ── TLS: local root CA + server certificate signed on the HOST ───────
 # The CA private key never enters any container; nginx only receives
