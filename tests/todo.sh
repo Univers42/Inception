@@ -428,6 +428,104 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════
+section "Prohibited constructs, users and the domain"
+# ═════════════════════════════════════════════════════════════════════
+
+# T17 — documentation explaining why keep-alive hacks are wrong
+DOC=docs/why-no-hacky-patches.md
+if [ ! -f "$DOC" ]; then
+    fail T17 "missing $DOC" "the subject asks for a written explanation with official references"
+else
+    ok=1
+    for topic in 'PID 1' 'SIGTERM' 'exec' 'HEALTHCHECK\|healthcheck'; do
+        grep -qi "$topic" "$DOC" || { ok=0; fail T17 "$DOC does not cover: $topic"; }
+    done
+    NREF=$(grep -c 'https://docs.docker.com' "$DOC")
+    [ "$NREF" -ge 4 ] || { ok=0; fail T17 "$DOC cites only $NREF official Docker references (want >= 4)"; }
+    [ $ok -eq 1 ] && pass T17 "documented why tail -f and friends are wrong practice" \
+        "$DOC — $NREF links to docs.docker.com, covering PID 1, signal delivery, exec form and healthchecks"
+fi
+
+# T18 — network_mode: host, --link and links: are forbidden
+ok=1
+grep -qE 'network_mode:[[:space:]]*host' "$COMPOSE_FILE" && { ok=0; fail T18 "network_mode: host is present"; }
+grep -qE '^\s+links:' "$COMPOSE_FILE" && { ok=0; fail T18 "links: is present"; }
+grep -qE '\-\-link' "$COMPOSE_FILE" Makefile $DOCKERFILES 2>/dev/null && { ok=0; fail T18 "--link is used"; }
+if [ $RUNNING -eq 1 ]; then
+    for c in $SERVICES; do
+        NM=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$c")
+        [ "$NM" = "host" ] && { ok=0; fail T18 "$c runs with host networking"; }
+        LK=$(docker inspect --format '{{.HostConfig.Links}}' "$c")
+        [ "$LK" = "[]" ] || [ -z "$LK" ] || { ok=0; fail T18 "$c has legacy links: $LK"; }
+    done
+fi
+[ $ok -eq 1 ] && pass T18 "no host networking, no links, no --link" "checked in the compose file and on the running containers"
+
+# T19 — the network line must be present in docker-compose.yml
+if grep -q '^networks:' "$COMPOSE_FILE" && svc_block nginx | grep -q 'networks:'; then
+    pass T19 "the network line is present in docker-compose.yml" \
+        "top-level networks: plus a networks: entry on each service"
+else
+    fail T19 "docker-compose.yml is missing the network declaration"
+fi
+
+# T21 — exactly two WordPress users, admin name must not contain "admin"
+if [ $RUNNING -eq 1 ]; then
+    ULIST=$(docker exec wordpress wp --allow-root --path=/var/www/html user list --fields=user_login,roles --format=csv 2>/dev/null | tail -n +2)
+    NUSERS=$(printf '%s\n' "$ULIST" | grep -c .)
+    ADMINS=$(printf '%s\n' "$ULIST" | grep ',administrator' | cut -d, -f1)
+    NADMIN=$(printf '%s\n' "$ADMINS" | grep -c .)
+    ok=1
+    [ "$NUSERS" -eq 2 ] || { ok=0; fail T21 "expected 2 WordPress users, found $NUSERS" "$ULIST"; }
+    [ "$NADMIN" -eq 1 ] || { ok=0; fail T21 "expected exactly 1 administrator, found $NADMIN"; }
+    for a in $ADMINS; do
+        case "$(printf %s "$a" | tr '[:upper:]' '[:lower:]')" in
+            *admin*) ok=0; fail T21 "administrator login '$a' contains 'admin'" ;;
+        esac
+    done
+    # the rule is also enforced at boot, not merely satisfied by luck
+    grep -q 'must not contain' srcs/requirements/wordpress/tools/entrypoint.sh \
+        || printf "         ${DIM}note: the entrypoint does not appear to enforce the rule${RST}\n"
+    [ $ok -eq 1 ] && pass T21 "two WordPress users, one compliant administrator" \
+        "$(printf '%s' "$ULIST" | tr '\n' ' ') — and the entrypoint refuses to boot on a non-compliant name"
+else
+    block T21 "stack is down — start it with 'make up'"
+fi
+
+# T22 — the volumes are visible in /home/<login>/data on the host
+if [ $RUNNING -eq 1 ]; then
+    ok=1
+    [ -d "$DATA_DIR/wordpress" ] || { ok=0; fail T22 "$DATA_DIR/wordpress does not exist on the host"; }
+    [ -d "$DATA_DIR/mariadb" ]   || { ok=0; fail T22 "$DATA_DIR/mariadb does not exist on the host"; }
+    [ -f "$DATA_DIR/wordpress/wp-config.php" ] || { ok=0; fail T22 "the site files are not visible at $DATA_DIR/wordpress"; }
+    # the datadir is mode 750 owned by the container's mysql user, so it is
+    # inspected through the container rather than from the host
+    docker exec mariadb test -d /var/lib/mysql/mysql || { ok=0; fail T22 "the MariaDB datadir is empty"; }
+    NFILES=$(ls -1 "$DATA_DIR/wordpress" 2>/dev/null | wc -l)
+    [ $ok -eq 1 ] && pass T22 "both volumes live under $DATA_DIR on the host" \
+        "$NFILES entries in $DATA_DIR/wordpress; MariaDB datadir populated (mode 750, inspected in-container)"
+else
+    block T22 "stack is down — start it with 'make up'"
+fi
+
+# T23 — the domain resolves to the local machine
+DOMAIN_OK=0
+if grep -qE "^[[:space:]]*127\.0\.0\.1[[:space:]]+.*$DOMAIN" /etc/hosts 2>/dev/null; then DOMAIN_OK=1; fi
+RESOLVED=$(getent hosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | head -1)
+case "$DOMAIN" in
+    "$LOGIN".42.fr) NAME_OK=1 ;;
+    *) NAME_OK=0 ;;
+esac
+if [ $NAME_OK -eq 0 ]; then
+    fail T23 "the domain must be $LOGIN.42.fr" "srcs/.env has DOMAIN_NAME=$DOMAIN"
+elif [ "$RESOLVED" = "127.0.0.1" ] || [ $DOMAIN_OK -eq 1 ]; then
+    pass T23 "$DOMAIN resolves to the local machine" "/etc/hosts entry present${RESOLVED:+, resolves to $RESOLVED}"
+else
+    block T23 "$DOMAIN does not resolve to 127.0.0.1 yet" \
+        "'make setup' adds it; it needs sudo. Add manually: echo '127.0.0.1 $DOMAIN' | sudo tee -a /etc/hosts"
+fi
+
+# ═════════════════════════════════════════════════════════════════════
 printf "\n${BLU}══ Summary ══${RST}  ${GRN}%d passed${RST}  ${RED}%d failed${RST}  ${YLW}%d blocked${RST}\n" \
     "$PASS" "$FAIL" "$BLOCK"
 [ "$PROBE_MODE" = "network" ] && printf "${DIM}HTTPS checks ran from inside the docker network: this host cannot bind :443 (rootless Docker).${RST}\n"
