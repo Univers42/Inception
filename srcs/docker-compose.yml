@@ -80,6 +80,19 @@ services:
       - source: db_root_password
         mode: 0400
 
+  # ── Bonus: static showcase site (no PHP, plain HTML/CSS/JS) ────────
+  staticsite:
+    build:
+      context: ./requirements/bonus/staticsite
+      dockerfile: Dockerfile
+    image: staticsite:inception
+    container_name: staticsite
+    ports:
+      - "8090:8090"
+    networks:
+      - inception
+    restart: unless-stopped
+
 # ── Named volumes stored under /home/dlesieur/data (subject rule) ───
 volumes:
   db_data:

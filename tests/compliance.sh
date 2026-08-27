@@ -142,12 +142,18 @@ for s in nginx wordpress mariadb; do
 done
 [ $ok -eq 1 ] && pass "S09 each image is named after its service (nginx, wordpress, mariadb)"
 
-# S10 only nginx publishes ports, and only 443
-PORTS=$(grep -A1 'ports:' "$COMPOSE_FILE" | grep -E '^\s+-' | tr -d ' "-' || true)
-if [ "$PORTS" = "443:443" ]; then
+# S10 only nginx publishes ports among the mandatory services, and only 443
+# (bonus services are explicitly allowed their own ports by the subject —
+# scoped to nginx's own block so a bonus port never trips this check)
+ok=1
+for s in wordpress mariadb; do
+    svc_block "$s" | grep -q '^\s*ports:' && { ok=0; fail "S10 mandatory service '$s' must not publish ports"; }
+done
+NGINX_PORTS=$(svc_block nginx | awk '/^\s*ports:/{f=1;next} f && /^\s*-/{print;next} f{exit}' | tr -d ' "-')
+if [ $ok -eq 1 ] && [ "$NGINX_PORTS" = "443:443" ]; then
     pass "S10 single published port: 443 (nginx)"
 else
-    fail "S10 published ports must be exactly 443:443 on nginx" "found: $PORTS"
+    ok=0; fail "S10 nginx must publish exactly 443:443" "found: $NGINX_PORTS"
 fi
 
 # S11 two named volumes rooted in /home/<login>/data, no service-level bind mounts

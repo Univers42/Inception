@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inception — Static Site</title>
+<meta name="description" content="Bonus static showcase for the Inception Docker infrastructure project — no PHP, no framework, vanilla HTML/CSS/JS only.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<canvas id="bg" aria-hidden="true"></canvas>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="kicker">// bonus service — static website</p>
+    <h1><span id="typed"></span><span class="caret" aria-hidden="true">▌</span></h1>
+    <p class="lede">
+      A small, self-contained showcase site — plain HTML, CSS and vanilla JavaScript.
+      No PHP, no build step, no framework, no external requests. Served by its own
+      NGINX container, entirely separate from the WordPress stack.
+    </p>
+    <div class="cta">
+      <a class="btn" href="https://dlesieur.42.fr" rel="noopener">Visit the WordPress site →</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel" aria-labelledby="about-h">
+    <h2 id="about-h">What this is</h2>
+    <p>
+      The Inception subject's bonus list asks for "a simple static website in the
+      language of your choice except PHP." This is that service: its own
+      <code>Dockerfile</code>, its own container, its own image
+      (<code>staticsite:inception</code>), on its own port — independent from the
+      mandatory NGINX / WordPress / MariaDB trio. It shares nothing with them except
+      the Docker host.
+    </p>
+  </section>
+
+  <section class="panel" aria-labelledby="stack-h">
+    <h2 id="stack-h">What it's built with</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>HTML</h3>
+        <p>Semantic markup, no template engine, no server-side rendering.</p>
+      </div>
+      <div class="card">
+        <h3>CSS</h3>
+        <p>Hand-written, system font stack only — nothing fetched from a CDN.</p>
+      </div>
+      <div class="card">
+        <h3>JavaScript</h3>
+        <p>Vanilla, no framework — the hero typing effect, the clock and the
+          background canvas below are all it does.</p>
+      </div>
+      <div class="card">
+        <h3>NGINX</h3>
+        <p>Serves the three files above and nothing else — no PHP handler is
+          configured in this container.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="arch-h">
+    <h2 id="arch-h">Where it sits in the infrastructure</h2>
+    <pre class="diagram" role="img" aria-label="Architecture diagram: this static site runs in its own container, alongside the mandatory nginx, wordpress and mariadb containers, all on the Docker host.">
+┌─────────────────────────────────────────────────────────┐
+│ Docker host                                              │
+│                                                            │
+│   ┌──────────────────────────────┐   ┌─────────────────┐ │
+│   │ inception network (bridge)    │   │ staticsite       │ │
+│   │                                │   │ (this service)   │ │
+│   │  nginx:443 ─▶ wordpress:9000  │   │ nginx :8090       │ │
+│   │              ─▶ mariadb:3306  │   │ (isolated, no DB, │ │
+│   │                                │   │  no PHP)          │ │
+│   └──────────────────────────────┘   └─────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+    </pre>
+  </section>
+
+  <section class="panel" aria-labelledby="status-h">
+    <h2 id="status-h">Live in your browser</h2>
+    <p>Nothing here is faked server-side — this clock and the moving background are
+      computed client-side, right now, by <code>script.js</code>:</p>
+    <p class="clock" id="clock" aria-live="polite">--:--:--</p>
+  </section>
+
+</main>
+
+<footer class="wrap foot">
+  <p>Inception — bonus static website. No PHP. No framework. No external requests.</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
