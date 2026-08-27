@@ -61,6 +61,22 @@ define( 'DB_COLLATE', '' );
 ${SALTS}
 \$table_prefix = 'wp_';
 define( 'WP_DEBUG', false );
+
+// Serve the same install correctly under any of the TLS certificate's SANs
+// (the subject-mandated domain, plus localhost/127.0.0.1 for VM port-forwarded
+// access from an unprivileged host with no /etc/hosts write access) instead of
+// hard-redirecting every other Host to the canonical domain. Anything outside
+// this whitelist still falls back to the canonical domain — never trusts an
+// arbitrary client-supplied Host header.
+\$__allowed_hosts = array( '${DOMAIN_NAME}', 'localhost', '127.0.0.1' );
+\$__host = isset( \$_SERVER['HTTP_HOST'] ) ? \$_SERVER['HTTP_HOST'] : '${DOMAIN_NAME}';
+\$__host_only = preg_replace( '/:[0-9]+\$/', '', \$__host );
+if ( ! in_array( \$__host_only, \$__allowed_hosts, true ) ) {
+    \$__host = '${DOMAIN_NAME}';
+}
+define( 'WP_HOME', 'https://' . \$__host );
+define( 'WP_SITEURL', 'https://' . \$__host );
+
 if ( ! defined( 'ABSPATH' ) ) {
     define( 'ABSPATH', __DIR__ . '/' );
 }
