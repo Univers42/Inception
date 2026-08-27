@@ -112,6 +112,10 @@ Client ──► NGINX:443 │   TLS 1.2/1.3 termination — the ONLY published 
 - nginx mounts the WordPress volume **read-only** and serves static assets itself;
   only `.php` requests are forwarded over FastCGI.
 
+A fourth, **independent** container (bonus, §11.1) exists alongside these three: a
+plain HTML/CSS/JS static site on its own port (8090), sharing no network dependency,
+volume or secret with the mandatory trio above.
+
 ---
 
 ## 4. Managing containers and volumes
@@ -194,6 +198,25 @@ Every container starts through an entrypoint script with the same shape:
 **Consequence of the guards:** changing secrets or install parameters does **not**
 propagate to an already-initialised stack (the DB and `wp-config.php` keep the values
 from first boot). Re-apply with `make clean && make`.
+
+**Multi-hostname `wp-config.php` (`WP_HOME`/`WP_SITEURL`):** by default WordPress
+hard-redirects (301, `redirect_canonical()`) any request whose `Host` header doesn't
+match its stored `siteurl`/`home` DB option — so a VM reachable only via a
+NAT-forwarded `localhost:<port>` on the host (no `/etc/hosts` write access there,
+§5b in `USER_DOC.md`) would 301 back to `dlesieur.42.fr`, which the host can't
+resolve, and just fail. The generated `wp-config.php` instead defines `WP_HOME`/
+`WP_SITEURL` dynamically from `$_SERVER['HTTP_HOST']`, checked against a hardcoded
+whitelist (`DOMAIN_NAME`, `localhost`, `127.0.0.1` — the same three names the TLS
+cert's SAN covers, §"Making it work" in the Makefile's `certs` target); anything
+outside the whitelist falls back to the canonical domain rather than reflecting an
+arbitrary client-supplied `Host` (Host-header spoofing/cache-poisoning would
+otherwise be a risk). WP-CLI (no HTTP context, `$_SERVER['HTTP_HOST']` unset) always
+falls back to the canonical domain too, so `wp option get siteurl` and `make run_wp`
+keep reporting `https://dlesieur.42.fr` regardless. This is a standard pattern for a
+single WordPress install reachable under more than one hostname, not a workaround —
+and it's why nothing else (nginx `server_name`, the cert) needed to change: nginx has
+only one `server {}` block on 443, so it already serves any Host on that port; only
+WordPress itself was redirecting.
 
 ---
 
@@ -506,6 +529,53 @@ srcs/requirements/wordpress/site/
 - **Gotcha:** WordPress runs `wpautop`/`texturize` before shortcodes — the kit
   registers its shortcodes in `no_texturize_shortcodes` and strips injected
   `<br/>` tags, otherwise `--flags` in commands render as dashes.
+
+---
+
+## 11.1 Bonus: static website (no PHP)
+
+Subject's bonus list, item 3: *"Create a simple static website in the language of
+your choice except PHP."* This is a **separate service from WordPress**, not a page
+rendered by it — WordPress itself is mandatorily PHP (`php-fpm`), so there is no such
+thing as a "PHP-free WordPress page"; the bonus rule targets an independent site.
+
+```
+srcs/requirements/bonus/staticsite/
+├── Dockerfile              # alpine:3.23 + nginx only — same base/conventions as
+│                            #   the mandatory services, no PHP package installed
+├── conf/nginx.conf         # plain HTTP, port 8090, static files only, no fastcgi
+├── tools/entrypoint.sh     # exec nginx as PID 1 — same pattern as every other
+│                            #   entrypoint in this repo (§6)
+└── site/                   # index.html + style.css + script.js — hand-written,
+                             #   zero external requests (no CDN fonts/JS/images),
+                             #   vanilla JS only (typing effect, live clock, a
+                             #   canvas background), prefers-reduced-motion safe
+```
+
+- **Container:** `staticsite`, image `staticsite:inception` — same naming
+  discipline as the mandatory services (§3).
+- **Network:** on the `inception` bridge network for consistency, but talks to
+  nothing else on it — no `depends_on`, no secrets, no shared volume. It is
+  reachable at `http://<login>.42.fr:8090` (plain HTTP: it carries no credentials,
+  so TLS wasn't judged necessary — trivial to add the same cert/secrets pattern as
+  nginx if a defense asks for it).
+- **Why nginx again, if the rule excludes PHP?** The excluded language is PHP —
+  the constraint is about how the *site* is authored (plain HTML/CSS/JS, no PHP
+  templating), not about which web server transports the bytes. Reusing nginx
+  keeps the image minimal and consistent with the rest of the project instead of
+  introducing a second, unrelated web-server technology for no benefit.
+- **Port choice:** 8090, picked simply because it's free and outside the
+  well-known-port range; the subject explicitly allows bonus services to open
+  extra ports (§VIII of the subject).
+- **Compliance-suite scoping:** `tests/compliance.sh` S10 originally grepped the
+  *entire* compose file for any `ports:` block, which would have false-failed once
+  a second (legitimate, bonus) `ports:` entry existed. It now checks nginx's own
+  service block specifically (`svc_block nginx`) and separately asserts that
+  `wordpress`/`mariadb` still publish nothing — R02 was already scoped correctly
+  (it filters `docker ps` down to `nginx|wordpress|mariadb`) and needed no change.
+- **Editing the content:** change anything under `site/`, then `make up` — the
+  container rebuilds and re-serves the new files immediately (no seeding, no
+  database, nothing to reset).
 
 ---
 

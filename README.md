@@ -92,9 +92,18 @@ printf 'WpAdminPass\nWpEditorPass\n' > secrets/credentials.txt   # line 1 admin,
 
 - **Site front-end:** `https://dlesieur.42.fr`
 - **Admin panel:** `https://dlesieur.42.fr/wp-admin`
+- **Bonus static site:** `http://dlesieur.42.fr:8090`
 
 The certificate is issued by a local CA. Either accept the browser warning once, or run
 `make trust` to install the CA into the system/browser trust stores.
+
+---
+
+## Bonus
+
+| Service | What it is |
+|---|---|
+| **Static website** | `srcs/requirements/bonus/staticsite/` — a hand-written, dependency-free HTML/CSS/JS page (no PHP, no framework, no CDN assets), served by its own nginx container on port 8090. Fully independent from WordPress/MariaDB: own Dockerfile, own image (`staticsite:inception`), no shared secrets or volumes. See `DEV_DOC.md` §11.1. |
 
 ---
 
