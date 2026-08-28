@@ -590,3 +590,103 @@ srcs/requirements/bonus/staticsite/
 | Browser says the certificate is untrusted | Expected with a local CA — accept once or run `make trust` |
 | `make bench` numbers look bad | Machine load skews everything — benchmark on a quiet machine (see §8.3) |
 | Compose errors about missing secret files | Run through `make` (not raw compose): `make setup` provisions secrets and certs first |
+
+
+---
+
+## 11. Bonus services
+
+Each is its own container, built from its own Dockerfile on `alpine:3.23`, with
+a healthcheck and a real daemon as PID 1 — the same rules the mandatory services
+follow. Sources in `srcs/requirements/bonus/`.
+
+### 11.2 Redis object cache
+
+Three parts have to line up, and it is the third that is usually missed:
+
+1. `php84-pecl-redis` in the WordPress image (the PHP extension).
+2. `WP_REDIS_HOST`, `WP_REDIS_PORT`, `WP_CACHE_KEY_SALT` and `WP_CACHE` in
+   `wp-config.php`. The salt is the domain, so two installs sharing a Redis
+   instance cannot read each other's keys.
+3. **The drop-in.** `wp redis enable` writes `wp-content/object-cache.php`.
+   Without it the plugin is installed, active, and caching nothing.
+
+The entrypoint does all three, **non-fatally** — the site must boot even if
+Redis is unreachable, because a cache is an optimisation, not a dependency.
+It also patches an *existing* `wp-config.php`: the config heredoc only runs on a
+first install, and the site volume outlives image rebuilds.
+
+Redis is configured as a cache, not a database — `save ""`, `appendonly no`,
+`maxmemory 256mb`, `maxmemory-policy allkeys-lru`. Without an eviction policy
+Redis answers writes with an error once full, which WordPress would surface as a
+broken page rather than a cache miss.
+
+### 11.3 FTP
+
+The interesting part is permissions. WordPress files are owned by `nobody`
+(uid 65534). Rather than `chmod -R g+w` across ~2600 files, the image adds a
+second `/etc/passwd` entry sharing that uid:
+
+```
+ftpuser:x:65534:65534:FTP:/var/www/html:/sbin/nologin
+```
+
+Two names for one uid is ordinary Unix. The FTP user *is* the owner, so nothing
+needs relaxing and permissions cannot drift out of step with php-fpm.
+
+Two traps, both hit while building this:
+
+- `vsftpd_log_file=/dev/stdout` **does not work.** vsftpd reopens its log after
+  dropping privileges and chrooting, by which point the `/proc/self/fd` symlink
+  no longer resolves; it then refuses every connection with
+  `500 OOPS: failed to open vsftpd log file` — which looks like an auth failure
+  but happens before authentication. Logging goes through syslog instead.
+- `seccomp_sandbox=NO` is required on Alpine, or transfers die immediately.
+
+Passive mode only, ports 21000-21010, advertising `127.0.0.1`: both routes to
+this server arrive over loopback, so one setting serves the VM and the physical
+host alike.
+
+### 11.4 Adminer
+
+Pinned to a release **and its SHA-256**, verified at build time — this container
+talks to the database, so its integrity is checked rather than assumed. Served
+by PHP's built-in server, which keeps it to one process; fronting a php-fpm pool
+with nginx would put two daemons in a container for a single-file admin page.
+
+### 11.5 Scheduled backups (free choice)
+
+`crond` as PID 1 — a real daemon, not a keep-alive loop. An initial backup runs
+at startup so the service is demonstrably working rather than merely scheduled,
+and so the healthcheck has something to verify. The healthcheck asserts a
+**valid** dump exists (`gzip -t`), not that the process is alive.
+
+Environment is written into the crontab line itself, because cron jobs do not
+inherit the container's environment.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BACKUP_CRON` | `0 */6 * * *` | schedule |
+| `BACKUP_KEEP` | `7` | how many dumps to retain |
+
+Data lives in the `backup_data` named volume → `/home/dlesieur/data/backups`,
+following the same host-path rule as the two mandatory volumes.
+
+### 11.6 A note on nginx and container IPs
+
+`fastcgi_pass` uses a variable plus an explicit `resolver 127.0.0.11`:
+
+```nginx
+resolver               127.0.0.11 valid=10s ipv6=off;
+set $upstream_wordpress wordpress:9000;
+fastcgi_pass            $upstream_wordpress;
+```
+
+With a literal `fastcgi_pass wordpress:9000;` nginx resolves the name once when
+it loads its config and caches that address for the life of the process.
+Recreate the wordpress container — a rebuild, a crash, any
+`docker compose up -d wordpress` — and it returns on a new IP while nginx keeps
+dialling the old one, answering **502 on every request** until nginx itself is
+restarted. Putting the upstream in a variable forces re-resolution per request.
+Verified by moving wordpress from `172.18.0.9` to `172.18.0.10` without touching
+nginx: the site stayed at 200.

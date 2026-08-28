@@ -101,9 +101,43 @@ The certificate is issued by a local CA. Either accept the browser warning once,
 
 ## Bonus
 
+All five permitted bonuses are implemented. Each is a separate container built
+from its own Dockerfile on `alpine:3.23`, on the `inception` network, with a
+healthcheck and `restart: unless-stopped` — the same rules as the mandatory
+services.
+
 | Service | What it is |
 |---|---|
-| **Static website** | `srcs/requirements/bonus/staticsite/` — a hand-written, dependency-free HTML/CSS/JS page (no PHP, no framework, no CDN assets), served by its own nginx container on port 8090. Fully independent from WordPress/MariaDB: own Dockerfile, own image (`staticsite:inception`), no shared secrets or volumes. See `DEV_DOC.md` §11.1. |
+| **Redis object cache** | `bonus/redis/` — WordPress rebuilds the same options, posts and terms from MariaDB on every request. The `redis-cache` drop-in keeps them in memory instead. Configured as a cache and not a database: persistence off, `maxmemory 256mb`, `allkeys-lru` eviction. **No published port** — reachable only inside the docker network, because an unauthenticated cache must not be exposed. |
+| **FTP server** | `bonus/ftp/` — vsftpd serving the WordPress site volume. The FTP account shares uid 65534 with `nobody`, which owns every file WordPress writes, so uploads land with correct ownership and no `chmod -R` is needed. Chrooted, passive-mode only, password from a Docker secret. |
+| **Static website** | `bonus/staticsite/` — hand-written, dependency-free HTML/CSS/JS (no PHP, no framework, no CDN assets), served by its own nginx on port 8090. Fully independent of WordPress and MariaDB. |
+| **Adminer** | `bonus/adminer/` — single-file database front end for MariaDB, pinned to a specific release **and its SHA-256**, served by PHP's built-in server (one process, PID 1 — the same approach as the official Adminer image). |
+| **Scheduled database backups** *(free choice)* | `bonus/dbbackup/` — `mariadb-dump --single-transaction` on a cron schedule into its own named volume, with retention and a restore script. |
+
+### Why the backup service
+
+The subject requires both volumes to live in `/home/<login>/data` on the host
+precisely because **the data is the part that cannot be rebuilt**. Every other
+container in this project can be recreated from its Dockerfile in seconds; the
+database cannot be recreated from anything. Nothing else in the stack protects
+it, so that is the gap this service fills.
+
+It is deliberately more than a `cron` line:
+
+- **`--single-transaction`** takes a consistent snapshot without locking tables,
+  so the site keeps serving while the dump runs.
+- **Writes to a `.part` file and renames on success**, so an interrupted run can
+  never leave a truncated file that looks like a usable backup.
+- **Verifies before keeping**: the dump must be non-empty and pass `gzip -t`.
+- **Retention** prunes to the newest `BACKUP_KEEP`.
+- **A restore path**, because a backup you cannot restore is not a backup:
+  `docker exec dbbackup restore.sh`.
+- The **healthcheck asserts a valid dump exists** — not merely that the process
+  is running, which is how backup services are discovered to be broken on the
+  day they are needed.
+
+Demonstrable end to end: create a post → `backup.sh` → delete the post →
+`restore.sh` → the post is back.
 
 ---
 

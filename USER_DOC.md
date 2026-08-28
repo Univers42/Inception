@@ -332,3 +332,53 @@ passwords and a freshly issued certificate.
 
 For architecture details, performance notes, and a defense/Q&A style deep dive, see
 `DEV_DOC.md`.
+
+
+---
+
+## 10. Bonus services
+
+Five extra services run alongside the website. All are started and stopped by
+the same `make` commands — there is nothing separate to launch.
+
+| Service | How you reach it | Credentials |
+|---|---|---|
+| **Static showcase site** | `http://dlesieur.42.fr:8090` | none |
+| **Adminer** (database UI) | `http://dlesieur.42.fr:8081` | server `mariadb`, user from `srcs/.env` (`MYSQL_USER`), password = contents of `secrets/db_password.txt` |
+| **FTP** | `ftp://127.0.0.1:2121` from your host, or port 21 inside the VM | user from `srcs/.env` (`FTP_USER`), password = contents of `secrets/ftp_password.txt` |
+| **Redis cache** | not exposed — it has no published port on purpose | none |
+| **Database backups** | files in `/home/dlesieur/data/backups` | none |
+
+**FTP must be used in passive mode.** Most clients (FileZilla, `lftp`, `curl`)
+do this by default. Active mode cannot work through the VM's NAT.
+
+```bash
+# from the host
+curl --ftp-pasv -u ftpuser:"$(cat secrets/ftp_password.txt)" ftp://127.0.0.1:2121/
+```
+
+### Your backups
+
+A dump is taken when the stack starts and then every 6 hours (`BACKUP_CRON` in
+`srcs/.env`), keeping the newest 7 (`BACKUP_KEEP`).
+
+```bash
+ls -lh /home/dlesieur/data/backups          # what you have
+docker exec dbbackup backup.sh              # take one right now
+docker exec dbbackup restore.sh             # restore the most recent
+docker exec dbbackup restore.sh /backups/wordpress-20260828-123429.sql.gz
+```
+
+Restoring overwrites the current database with the contents of the dump. If you
+want to be sure a backup is good without restoring it, `gzip -t` it — that is
+exactly what the container's healthcheck does.
+
+### Is the cache actually working?
+
+```bash
+docker exec wordpress wp --allow-root --path=/var/www/html redis status
+```
+
+Look for `Status: Connected` and `Drop-in: Valid`. `docker exec redis
+redis-cli dbsize` shows the number of cached entries, which climbs as pages are
+visited.
