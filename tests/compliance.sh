@@ -449,7 +449,12 @@ esac
 # S18 entrypoints hand PID 1 to the daemon via exec
 ok=1
 for e in $ENTRYPOINT_FILES; do
-    LAST=$(grep -vE '^\s*(#|$)' "$e" | tail -1)
+    # Join backslash continuations before taking the last line. `exec daemon \`
+    # spread over several lines for readability is still an exec, and judging
+    # the last PHYSICAL line would fail it for its own final flag.
+    LAST=$(grep -vE '^\s*(#|$)' "$e" \
+        | sed -e ':a' -e '/\\$/{N;s/\\\n[[:space:]]*/ /;ba}' \
+        | tail -1)
     case "$LAST" in
         exec\ *) : ;;
         *) ok=0; fail "S18 $e does not end with 'exec <daemon>'" "last line: $LAST" ;;

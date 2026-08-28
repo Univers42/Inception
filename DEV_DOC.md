@@ -623,6 +623,9 @@ broken page rather than a cache miss.
 
 ### 11.3 FTP
 
+`pure-ftpd`, configured entirely by command-line flags built in the entrypoint
+from `conf/pure-ftpd.conf`.
+
 The interesting part is permissions. WordPress files are owned by `nobody`
 (uid 65534). Rather than `chmod -R g+w` across ~2600 files, the image adds a
 second `/etc/passwd` entry sharing that uid:
@@ -632,20 +635,35 @@ ftpuser:x:65534:65534:FTP:/var/www/html:/sbin/nologin
 ```
 
 Two names for one uid is ordinary Unix. The FTP user *is* the owner, so nothing
-needs relaxing and permissions cannot drift out of step with php-fpm.
+needs relaxing and permissions cannot drift out of step with php-fpm. The login
+shell must also appear in `/etc/shells` or the account is refused, even though
+it must never get a shell.
 
-Two traps, both hit while building this:
+**Why not vsftpd.** It was the first implementation and it works for ordinary
+clients, but on Alpine it dies under rapid connect/disconnect — the pattern a
+port scan produces. Measured: 3 to 5 crashes per 60 abrupt closes, which the
+restart policy quietly absorbed as a climbing `RestartCount` while the service
+still reported healthy. `isolate=NO`/`isolate_network=NO` reduced it but did not
+remove it, and `one_process_model=YES` stopped the crashes by breaking FTP
+entirely (no listings, no uploads). pure-ftpd survived the identical test —
+100 abrupt closes, zero restarts — so that is what ships.
 
-- `vsftpd_log_file=/dev/stdout` **does not work.** vsftpd reopens its log after
-  dropping privileges and chrooting, by which point the `/proc/self/fd` symlink
-  no longer resolves; it then refuses every connection with
-  `500 OOPS: failed to open vsftpd log file` — which looks like an auth failure
-  but happens before authentication. Logging goes through syslog instead.
-- `seccomp_sandbox=NO` is required on Alpine, or transfers die immediately.
+Two vsftpd traps worth recording anyway, since both cost real time:
+`vsftpd_log_file=/dev/stdout` makes it refuse every connection with
+`500 OOPS: failed to open vsftpd log file`, because it reopens the log after
+dropping privileges and chrooting when the `/proc/self/fd` symlink no longer
+resolves; and `syslog_enable=YES` silently discards everything, because a
+single-service container has no syslog daemon and therefore no `/dev/log`.
 
-Passive mode only, ports 21000-21010, advertising `127.0.0.1`: both routes to
-this server arrive over loopback, so one setting serves the VM and the physical
-host alike.
+**Passive mode only**, ports 21000-21010 published 1:1 — the advertised range
+and the reachable range must be identical or every directory listing hangs —
+advertising `127.0.0.1`, which serves the VM and the physical host alike
+because both reach the server over loopback.
+
+The healthcheck reads the listening socket from `/proc` with `netstat` rather
+than opening a connection: under vsftpd the obvious `nc -z` was itself killing
+the daemon every ten seconds, and a healthcheck should observe a service, not
+exercise it.
 
 ### 11.4 Adminer
 
