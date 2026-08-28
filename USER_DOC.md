@@ -344,8 +344,8 @@ the same `make` commands — there is nothing separate to launch.
 | Service | How you reach it | Credentials |
 |---|---|---|
 | **Static showcase site** | `http://dlesieur.42.fr:8090` | none |
-| **Adminer** (database UI) | `http://dlesieur.42.fr:8081` | server `mariadb`, user from `srcs/.env` (`MYSQL_USER`), password = contents of `secrets/db_password.txt` |
-| **FTP** | `ftp://127.0.0.1:2121` from your host, or port 21 inside the VM | user from `srcs/.env` (`FTP_USER`), password = contents of `secrets/ftp_password.txt` |
+| **Adminer** (database UI) | `http://dlesieur.42.fr:8081` | server `mariadb`, user from `srcs/.env` (`MYSQL_USER`); for the password, read the file `secrets/db_password.txt` |
+| **FTP** | `ftp://127.0.0.1:2121` from your host, or port 21 inside the VM | user from `srcs/.env` (`FTP_USER`); for the password, read the file `secrets/ftp_password.txt` |
 | **Redis cache** | not exposed — it has no published port on purpose | none |
 | **Database backups** | files in `/home/dlesieur/data/backups` | none |
 
