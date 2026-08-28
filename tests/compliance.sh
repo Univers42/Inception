@@ -16,7 +16,21 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 DEEP=0
-[ "${1:-}" = "--deep" ] && DEEP=1
+NO_CLONE="${NO_CLONE:-0}"
+# Flags in any order, and more than one of them: the old form only looked at $1,
+# so `--no-clone --deep` silently ignored the second.
+for arg in "$@"; do
+    case "$arg" in
+        --deep)     DEEP=1 ;;
+        --no-clone) NO_CLONE=1 ;;
+        -h|--help)
+            echo "usage: $0 [--deep] [--no-clone]"
+            echo "  --deep      also exercise crash-restart and persistence"
+            echo "  --no-clone  skip the preliminary checks, which clone the repository"
+            exit 0 ;;
+        *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
+    esac
+done
 
 if [ -t 1 ]; then
     RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[0;33m'
@@ -50,6 +64,109 @@ ALL_ENTRYPOINTS=$(ls srcs/requirements/*/tools/*.sh srcs/requirements/*/*/tools/
 ENTRYPOINT_FILES=$(ls srcs/requirements/*/tools/entrypoint.sh srcs/requirements/*/*/tools/entrypoint.sh 2>/dev/null)
 
 printf "${BLU}══ Inception compliance suite ══${RST}  login=%s domain=%s\n" "$LOGIN" "$DOMAIN"
+
+# ─────────────────────────────────────────────────────────────────────
+section "[P] Preliminary tests (what happens before anything else)"
+# ─────────────────────────────────────────────────────────────────────
+# The sheet opens with four gates, three of which end the evaluation at 0.
+# They apply to the CLONE the evaluator takes, not to this working tree — a
+# tree can be spotless while the pushed repository is stale or leaky, so every
+# check below runs against a fresh clone.
+#
+# Skipped entirely with --no-clone (offline, or when a network round trip is
+# not wanted).
+PRELIM_DIR=""
+cleanup_prelim() { [ -n "$PRELIM_DIR" ] && rm -rf "$PRELIM_DIR"; }
+trap cleanup_prelim EXIT
+
+if [ "${NO_CLONE:-0}" = "1" ]; then
+    skip "P** --no-clone / NO_CLONE=1 — the preliminary checks need to clone the repository"
+else
+    # The remote may be the ssh form, which only works if that key is on the
+    # account. The evaluator clones over https, so normalise to that.
+    ORIGIN_URL=$(git remote get-url origin 2>/dev/null)
+    CLONE_URL=$(printf '%s' "$ORIGIN_URL" | sed -E 's#^git@([^:]+):#https://\1/#')
+
+    PRELIM_DIR=$(mktemp -d)
+    if [ -z "$CLONE_URL" ]; then
+        fail "P01 no 'origin' remote — there is nothing for an evaluator to clone"
+    elif ! git clone -q "$CLONE_URL" "$PRELIM_DIR/repo" 2>/dev/null; then
+        warn "P01 could not clone $CLONE_URL (offline?) — preliminary checks skipped"
+        PRELIM_DIR=""
+    else
+        C="$PRELIM_DIR/repo"
+        pass "P01 the repository clones cleanly from $CLONE_URL"
+
+        # ── Point 3: is the work actually submitted? ──────────────────────
+        # Committing is not submitting. Anything unpushed simply does not
+        # exist as far as the evaluation is concerned.
+        LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
+        CLONE_HEAD=$(git -C "$C" rev-parse HEAD 2>/dev/null)
+        if [ "$LOCAL_HEAD" = "$CLONE_HEAD" ]; then
+            pass "P02 the clone is at the same commit as this tree ($(printf '%.7s' "$CLONE_HEAD"))"
+        else
+            AHEAD=$(git rev-list --count "$CLONE_HEAD..$LOCAL_HEAD" 2>/dev/null || echo '?')
+            fail "P02 the clone is $AHEAD commit(s) BEHIND this tree — that work is not submitted" \
+                 "local $(printf '%.7s' "$LOCAL_HEAD") vs clone $(printf '%.7s' "$CLONE_HEAD"); push before the defence"
+        fi
+        DIRTY=$(git status --porcelain 2>/dev/null | grep -vE '^\?\? (secrets/|srcs/\.env)' | wc -l)
+        [ "$DIRTY" -eq 0 ] || warn "P02 $DIRTY uncommitted change(s) in this tree are not in the clone"
+
+        # ── Point 3: right files, right directories, right names ─────────
+        ok=1
+        for f in Makefile srcs/docker-compose.yml README.md USER_DOC.md DEV_DOC.md; do
+            [ -f "$C/$f" ] || { ok=0; fail "P03 the clone is missing $f"; }
+        done
+        for d in srcs srcs/requirements secrets; do
+            case "$d" in
+                secrets) continue ;;   # generated at evaluation time, must NOT be in the repo
+            esac
+            [ -d "$C/$d" ] || { ok=0; fail "P03 the clone is missing the directory $d/"; }
+        done
+        for svc in nginx wordpress mariadb; do
+            [ -f "$C/srcs/requirements/$svc/Dockerfile" ] \
+                || { ok=0; fail "P03 the clone is missing srcs/requirements/$svc/Dockerfile"; }
+        done
+        [ $ok -eq 1 ] && pass "P03 the clone has the expected files, directories and names"
+
+        # ── Point 1: credentials. A hit here is an instant zero ───────────
+        ok=1
+        # (a) no .env may be committed — it is created during the evaluation
+        ENVS=$(cd "$C" && git ls-files | grep -E '(^|/)\.env$' || true)
+        [ -z "$ENVS" ] || { ok=0; fail "P04 a .env file is committed to the repository" "$ENVS"; }
+        # (b) nothing from secrets/ may be committed
+        SEC=$(cd "$C" && git ls-files | grep -E '(^|/)secrets/' || true)
+        [ -z "$SEC" ] || { ok=0; fail "P04 files under secrets/ are committed" "$SEC"; }
+        # (c) no key material by extension
+        KEYS=$(cd "$C" && git ls-files | grep -E '\.(key|pem|p12|pfx)$' || true)
+        [ -z "$KEYS" ] || { ok=0; fail "P04 private key material is committed" "$KEYS"; }
+        # (d) the decisive one: do the REAL current secret values appear
+        #     anywhere in the clone, working tree or history? This cannot be
+        #     evaded the way a pattern match can, and it is exactly what a
+        #     grader would find. Values are never printed — only where.
+        HITS=""
+        for f in secrets/db_password.txt secrets/db_root_password.txt \
+                 secrets/credentials.txt secrets/ftp_password.txt; do
+            [ -f "$f" ] || continue
+            while IFS= read -r v; do
+                [ ${#v} -ge 8 ] || continue
+                grep -rqF -- "$v" "$C" 2>/dev/null && HITS="$HITS
+tree:$(basename "$f")"
+                git -C "$C" log --all -p 2>/dev/null | grep -qF -- "$v" \
+                    && HITS="$HITS
+history:$(basename "$f")"
+            done < "$f"
+        done
+        HITS=$(printf '%s' "$HITS" | grep -v '^$' | sort -u)
+        [ -z "$HITS" ] || { ok=0; fail "P04 a LIVE credential value is published in the repository" "$HITS"; }
+        [ $ok -eq 1 ] && pass "P04 no .env, no secrets/, no key files and no live credential value in the clone or its history"
+    fi
+
+    # ── Point 2: presence at the defence ─────────────────────────────────
+    # Stated so it is accounted for rather than quietly dropped: no script can
+    # check who is in the room.
+    skip "P05 'defense can only happen if the student is present' — not machine-verifiable, by nature"
+fi
 
 # ─────────────────────────────────────────────────────────────────────
 section "[S] Structure & Makefile"
