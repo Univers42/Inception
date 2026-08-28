@@ -43,9 +43,13 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     environment:
       DOMAIN_NAME:    ${DOMAIN_NAME}
+      WP_REDIS_HOST:  ${WP_REDIS_HOST}
+      WP_REDIS_PORT:  ${WP_REDIS_PORT}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER:     ${MYSQL_USER}
       WP_TITLE:       ${WP_TITLE}
@@ -93,6 +97,83 @@ services:
       - inception
     restart: unless-stopped
 
+  # ── Bonus: Redis — object cache for WordPress ──────────────────────
+  # No ports: reachable only on the inception network. An unauthenticated
+  # cache must never be published to a host port.
+  redis:
+    build:
+      context: ./requirements/bonus/redis
+      dockerfile: Dockerfile
+    image: redis:inception
+    container_name: redis
+    networks:
+      - inception
+    restart: unless-stopped
+
+  # ── Bonus: FTP into the WordPress site volume ──────────────────────
+  ftp:
+    build:
+      context: ./requirements/bonus/ftp
+      dockerfile: Dockerfile
+    image: ftp:inception
+    container_name: ftp
+    ports:
+      - "21:21"
+      - "21000-21010:21000-21010"
+    volumes:
+      - wp_data:/var/www/html
+    networks:
+      - inception
+    restart: unless-stopped
+    environment:
+      FTP_USER:         ${FTP_USER}
+      FTP_PASV_ADDRESS: ${FTP_PASV_ADDRESS}
+    secrets:
+      - source: ftp_password
+        mode: 0400
+
+  # ── Bonus: Adminer — database front end ────────────────────────────
+  adminer:
+    build:
+      context: ./requirements/bonus/adminer
+      dockerfile: Dockerfile
+    image: adminer:inception
+    container_name: adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - inception
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Bonus (free choice): scheduled, verified database backups ──────
+  # Chosen because the subject puts both volumes on the host precisely
+  # because the data matters, and nothing else in the stack protects it.
+  dbbackup:
+    build:
+      context: ./requirements/bonus/dbbackup
+      dockerfile: Dockerfile
+    image: dbbackup:inception
+    container_name: dbbackup
+    volumes:
+      - backup_data:/backups
+    networks:
+      - inception
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER:     ${MYSQL_USER}
+      BACKUP_CRON:    ${BACKUP_CRON}
+      BACKUP_KEEP:    ${BACKUP_KEEP}
+    secrets:
+      - source: db_password
+        mode: 0400
+
 # ── Named volumes stored under /home/dlesieur/data (subject rule) ───
 volumes:
   db_data:
@@ -106,6 +187,14 @@ volumes:
     driver_opts:
       type: none
       device: /home/dlesieur/data/wordpress
+      o: bind
+  # Bonus: where dbbackup writes its dumps. Same host-path rule as the
+  # two mandatory volumes.
+  backup_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /home/dlesieur/data/backups
       o: bind
 
 # ── Docker network (bridge; host networking is forbidden) ───────────
@@ -126,3 +215,5 @@ secrets:
     file: ../secrets/server.crt
   server_key:
     file: ../secrets/server.key
+  ftp_password:
+    file: ../secrets/ftp_password.txt

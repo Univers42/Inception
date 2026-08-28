@@ -59,6 +59,7 @@ RUN --mount=type=cache,id=${APK_CACHE_ID}-wordpress,sharing=locked,target=/var/c
         php84-ctype \
         php84-session \
         php84-opcache \
+        php84-pecl-redis \
     && rm /etc/apk/cache \
     && ln -sf /usr/bin/php84 /usr/bin/php \
     && mkdir -p /var/www/html \

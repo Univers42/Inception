@@ -2,6 +2,8 @@
 set -eu
 
 : "${DOMAIN_NAME:?}" "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}" "${WP_TITLE:?}"
+WP_REDIS_HOST="${WP_REDIS_HOST:-redis}"
+WP_REDIS_PORT="${WP_REDIS_PORT:-6379}"
 : "${WP_ADMIN_USER:?}" "${WP_ADMIN_EMAIL:?}" "${WP_USER:?}" "${WP_USER_EMAIL:?}"
 
 # ── Subject rule: admin username must not contain admin/Admin/... ────
@@ -77,6 +79,17 @@ if ( ! in_array( \$__host_only, \$__allowed_hosts, true ) ) {
 define( 'WP_HOME', 'https://' . \$__host );
 define( 'WP_SITEURL', 'https://' . \$__host );
 
+// Object cache (bonus). WordPress rebuilds the same options, posts and terms
+// from MariaDB on every request; with these set, the redis-cache drop-in keeps
+// them in Redis instead. The key salt is the domain, so two installs sharing a
+// Redis instance cannot read each other's entries.
+define( 'WP_REDIS_HOST', '${WP_REDIS_HOST}' );
+define( 'WP_REDIS_PORT', ${WP_REDIS_PORT} );
+define( 'WP_REDIS_TIMEOUT', 1 );
+define( 'WP_REDIS_READ_TIMEOUT', 1 );
+define( 'WP_CACHE_KEY_SALT', '${DOMAIN_NAME}' );
+define( 'WP_CACHE', true );
+
 if ( ! defined( 'ABSPATH' ) ) {
     define( 'ABSPATH', __DIR__ . '/' );
 }
@@ -109,11 +122,59 @@ EOF
     echo "[entrypoint] WordPress setup complete."
 fi
 
+# ── Object cache (bonus): wire an EXISTING install up to Redis ───────
+# The wp-config.php heredoc above only runs on a first install, and the site
+# volume outlives image rebuilds — so an install created before Redis existed
+# would never gain these constants. Append them once, idempotently, before the
+# ABSPATH guard: anything after that line is the bootstrap and is read too late.
+if [ -f /var/www/html/wp-config.php ] \
+   && ! grep -q 'WP_REDIS_HOST' /var/www/html/wp-config.php; then
+    echo "[entrypoint] Adding Redis cache settings to the existing wp-config.php ..."
+    TMP_CFG=$(mktemp)
+    if awk -v host="$WP_REDIS_HOST" -v port="$WP_REDIS_PORT" -v salt="$DOMAIN_NAME" '
+            !added && index($0, "ABSPATH") && index($0, "defined") {
+                printf "define( %cWP_REDIS_HOST%c, %c%s%c );\n", 39,39,39,host,39
+                printf "define( %cWP_REDIS_PORT%c, %s );\n", 39,39,port
+                printf "define( %cWP_REDIS_TIMEOUT%c, 1 );\n", 39,39
+                printf "define( %cWP_REDIS_READ_TIMEOUT%c, 1 );\n", 39,39
+                printf "define( %cWP_CACHE_KEY_SALT%c, %c%s%c );\n", 39,39,39,salt,39
+                printf "define( %cWP_CACHE%c, true );\n\n", 39,39
+                added = 1
+            }
+            { print }
+        ' /var/www/html/wp-config.php > "$TMP_CFG" && [ -s "$TMP_CFG" ]; then
+        cat "$TMP_CFG" > /var/www/html/wp-config.php
+    else
+        echo "[entrypoint] WARN: could not patch wp-config.php for Redis" >&2
+    fi
+    rm -f "$TMP_CFG"
+fi
+
 # ── Deploy the documentation site (theme, plugin, seeded content) ────
 # Idempotent and deliberately NON-FATAL: site provisioning must never
 # be able to break the service boot path.
 sh /usr/src/inception-site/install.sh \
     || echo "[entrypoint] WARN: site provisioning failed (service boots anyway)" >&2
+
+# ── Object cache (bonus): plugin + drop-in ───────────────────────────
+# NON-FATAL, like the site provisioning above: a cache is an optimisation, and a
+# Redis problem must never be able to stop WordPress from booting.
+enable_redis_cache() {
+    wp plugin is-installed redis-cache --allow-root --path=/var/www/html 2>/dev/null \
+        || wp plugin install redis-cache --allow-root --path=/var/www/html || return 1
+    wp plugin is-active redis-cache --allow-root --path=/var/www/html 2>/dev/null \
+        || wp plugin activate redis-cache --allow-root --path=/var/www/html || return 1
+    # `wp redis enable` writes wp-content/object-cache.php — the drop-in that
+    # actually routes WordPress's cache calls to Redis. Without it the plugin is
+    # installed and the cache is still doing nothing.
+    [ -f /var/www/html/wp-content/object-cache.php ] \
+        || wp redis enable --allow-root --path=/var/www/html || return 1
+}
+if enable_redis_cache; then
+    echo "[entrypoint] Redis object cache enabled."
+else
+    echo "[entrypoint] WARN: could not enable the Redis object cache (site boots anyway)" >&2
+fi
 
 # ── Start php-fpm as PID 1 ───────────────────────────────────────────
 echo "[entrypoint] Starting php-fpm ..."

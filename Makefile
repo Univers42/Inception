@@ -30,12 +30,12 @@ build: setup
 # Everything is generated only if missing, so a fresh clone starts with
 # a single `make` while existing credentials are never overwritten.
 setup:
-	@mkdir -p $(DATA_DIR)/mariadb $(DATA_DIR)/wordpress $(SECRETS)
+	@mkdir -p $(DATA_DIR)/mariadb $(DATA_DIR)/wordpress $(DATA_DIR)/backups $(SECRETS)
 	@if [ ! -f srcs/.env ]; then \
 		sed 's/login\.42\.fr/$(LOGIN).42.fr/g' .env.example > srcs/.env; \
 		echo "[setup] Generated srcs/.env — edit it to customise"; \
 	fi
-	@for f in db_password db_root_password; do \
+	@for f in db_password db_root_password ftp_password; do \
 		if [ ! -f $(SECRETS)/$$f.txt ]; then \
 			openssl rand -base64 24 | tr -d '/+=' > $(SECRETS)/$$f.txt; \
 			chmod 600 $(SECRETS)/$$f.txt; \
