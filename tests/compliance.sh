@@ -1128,19 +1128,48 @@ else
     ADMIN_USER=$(sed -n 's/^WP_ADMIN_USER=//p' srcs/.env | head -1)
     ADMIN_PW=$(sed -n 1p secrets/credentials.txt 2>/dev/null)
     if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PW" ]; then
+        # Split into the two things the evaluator actually does, so a failure
+        # names the stage instead of just "did not reach the dashboard" — the
+        # earlier one-shot form could not distinguish a rejected password from a
+        # dashboard that merely rendered slowly, which made it undiagnosable.
         JAR=$(mktemp)
         curl -ks -c "$JAR" --max-time 20 "https://${DOMAIN}/wp-login.php" -o /dev/null
-        LOGIN_BODY=$(curl -ks -b "$JAR" -c "$JAR" -L --max-time 25 \
+
+        # Stage 1 — POST the credentials. WordPress answers a successful sign-in
+        # with 302 to redirect_to plus a wordpress_logged_in cookie; a rejected
+        # one answers 200 and re-renders the form. That is the authoritative
+        # signal, and it does not depend on any page rendering.
+        LOGIN_HDR=$(curl -ks -b "$JAR" -c "$JAR" -D - -o /dev/null --max-time 30 \
             --data-urlencode "log=${ADMIN_USER}" \
             --data-urlencode "pwd=${ADMIN_PW}" \
             --data-urlencode "wp-submit=Log In" \
             --data-urlencode "redirect_to=https://${DOMAIN}/wp-admin/" \
             --data-urlencode "testcookie=1" \
             "https://${DOMAIN}/wp-login.php")
-        if grep -q 'wordpress_logged_in' "$JAR" && printf '%s' "$LOGIN_BODY" | grep -qi 'dashboard\|wp-admin-bar\|adminmenu'; then
-            pass "E05 administrator '$ADMIN_USER' signs in over HTTPS and reaches the dashboard"
+        LOGIN_CODE=$(printf '%s' "$LOGIN_HDR" | awk 'tolower($1) ~ /^http/ { c=$2 } END { print c }')
+        HAS_COOKIE=$(grep -c 'wordpress_logged_in' "$JAR" 2> /dev/null || echo 0)
+
+        if [ "${HAS_COOKIE:-0}" -lt 1 ]; then
+            # Ask WordPress directly whether the stored hash matches, which
+            # separates "the password in secrets/ is not the password in the
+            # database" from "the HTTP sign-in path is broken".
+            PW_OK=$(docker exec -e CPW="$ADMIN_PW" -e CU="$ADMIN_USER" wordpress php -r \
+                'require "/var/www/html/wp-load.php";
+                 $u = get_user_by("login", getenv("CU"));
+                 echo ($u && wp_check_password(getenv("CPW"), $u->user_pass, $u->ID)) ? "yes" : "no";' \
+                2> /dev/null)
+            fail "E05 administrator sign-in was rejected" \
+                 "POST wp-login.php -> HTTP ${LOGIN_CODE:-none}, no wordpress_logged_in cookie; stored password matches secrets/credentials.txt: ${PW_OK:-unknown}"
         else
-            fail "E05 administrator sign-in did not reach the dashboard"
+            # Stage 2 — the dashboard itself, fetched with the session cookie.
+            DASH=$(curl -ks -b "$JAR" --max-time 60 -w '\n%{http_code}' "https://${DOMAIN}/wp-admin/")
+            DASH_CODE=$(printf '%s' "$DASH" | tail -n1)
+            if [ "$DASH_CODE" = "200" ] && printf '%s' "$DASH" | grep -qi 'dashboard\|wp-admin-bar\|adminmenu'; then
+                pass "E05 administrator '$ADMIN_USER' signs in over HTTPS and reaches the dashboard"
+            else
+                fail "E05 signed in, but /wp-admin/ did not render the dashboard" \
+                     "GET /wp-admin/ -> HTTP ${DASH_CODE:-none}"
+            fi
         fi
         rm -f "$JAR"
     else
