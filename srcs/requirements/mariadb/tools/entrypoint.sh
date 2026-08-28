@@ -17,8 +17,6 @@ sql_escape() { printf %s "$1" | sed "s/'/''/g"; }
 ROOT_PW_SQL="$(sql_escape "$MYSQL_ROOT_PASSWORD")"
 USER_PW_SQL="$(sql_escape "$MYSQL_PASSWORD")"
 
-MARKER=/var/lib/mysql/.inception_init_done
-
 # ── Create system tables on a fresh volume ───────────────────────────
 if [ ! -d /var/lib/mysql/mysql ]; then
     echo "[entrypoint] Initialising MariaDB data directory ..."
@@ -26,15 +24,28 @@ if [ ! -d /var/lib/mysql/mysql ]; then
         > /dev/null 2>&1
 fi
 
-# ── One-time bootstrap: root password, application DB and user ──────
+# ── Reconcile the root password, application DB and user on EVERY boot ──
 # Runs in mariadbd --bootstrap mode: the SQL is applied directly, with
 # no temporary server, no client and no authentication — so an
-# interrupted first boot retries cleanly whatever state it died in.
-# All statements are idempotent; the marker is written only after full
-# success.
-if [ ! -f "$MARKER" ]; then
-    echo "[entrypoint] Bootstrapping database and users ..."
-    mariadbd --user=mysql --bootstrap <<EOSQL
+# interrupted boot retries cleanly from whatever state it died in.
+#
+# This deliberately runs every time rather than once behind a marker file.
+# The marker used to live in /var/lib/mysql, i.e. inside the data
+# directory — and that directory is a bind mount onto the host, so it
+# OUTLIVES `docker volume rm`. The evaluation sheet's cleanup removes
+# containers, images and volumes but cannot touch the host path, so:
+#
+#   cleanup  ->  fresh clone  ->  secrets/ is empty (correctly gitignored)
+#            ->  make setup generates NEW random passwords
+#            ->  data directory still holds the OLD ones
+#            ->  marker present, bootstrap skipped, credentials never updated
+#            ->  ERROR 1045 Access denied, wordpress restart-loops,
+#                nginx never starts, and the evaluation ends there.
+#
+# Every statement below is idempotent, so re-running costs about a second
+# and makes the database agree with whatever secrets are current.
+echo "[entrypoint] Reconciling database and users with the current secrets ..."
+mariadbd --user=mysql --bootstrap <<EOSQL
 USE mysql;
 FLUSH PRIVILEGES;
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PW_SQL}';
@@ -44,9 +55,7 @@ ALTER USER '${MYSQL_USER}'@'%' IDENTIFIED BY '${USER_PW_SQL}';
 GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOSQL
-    touch "$MARKER"
-    echo "[entrypoint] Bootstrap complete."
-fi
+echo "[entrypoint] Database and users are in sync with the mounted secrets."
 
 # ── Start MariaDB as PID 1 ───────────────────────────────────────────
 echo "[entrypoint] Starting MariaDB ..."

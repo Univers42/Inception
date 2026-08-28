@@ -3,6 +3,10 @@ set -eu
 
 : "${DOMAIN_NAME:?}" "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}" "${WP_TITLE:?}"
 WP_REDIS_HOST="${WP_REDIS_HOST:-redis}"
+# Escape a value for a PHP single-quoted string literal. Defined at top
+# level because both the first-install heredoc and the reconcile step below
+# need it, and the latter runs outside the install branch.
+php_escape_pw() { printf %s "$1" | sed 's/\\/\\\\/g; s/'\''/\\'\''/g'; }
 WP_REDIS_PORT="${WP_REDIS_PORT:-6379}"
 : "${WP_ADMIN_USER:?}" "${WP_ADMIN_EMAIL:?}" "${WP_USER:?}" "${WP_USER_EMAIL:?}"
 
@@ -120,6 +124,35 @@ EOF
     # over ~2600 files costs ~1s and is unnecessary)
     find /var/www/html -user root -exec chown nobody:nobody {} + 2>/dev/null || true
     echo "[entrypoint] WordPress setup complete."
+fi
+
+# ── Reconcile DB_PASSWORD in an EXISTING wp-config.php ───────────────
+# Same reason as the mariadb entrypoint. The site volume is a bind mount onto
+# the host, so wp-config.php survives `docker volume rm` — and it carries the
+# database password from the day it was written. After the evaluation sheet's
+# cleanup, a fresh clone generates NEW secrets: mariadb reconciles itself, but
+# this file would still hold the old password and every page would be a 500.
+#
+# Only the password is reconciled. DB_NAME/DB_USER/DB_HOST come from .env,
+# which a fresh clone regenerates identically from .env.example.
+if [ -f /var/www/html/wp-config.php ]; then
+    ESC_PW="$(php_escape_pw "$MYSQL_PASSWORD")"
+    if ! grep -qF "define( 'DB_PASSWORD', '${ESC_PW}' );" /var/www/html/wp-config.php; then
+        echo "[entrypoint] wp-config.php holds a stale DB_PASSWORD — syncing it with the mounted secret ..."
+        TMP_PW=$(mktemp)
+        if awk -v pw="$ESC_PW" '
+                /^define\( *.DB_PASSWORD./ {
+                    printf "define( %cDB_PASSWORD%c, %c%s%c );\n", 39,39,39,pw,39
+                    next
+                }
+                { print }
+            ' /var/www/html/wp-config.php > "$TMP_PW" && [ -s "$TMP_PW" ]; then
+            cat "$TMP_PW" > /var/www/html/wp-config.php
+        else
+            echo "[entrypoint] WARN: could not update DB_PASSWORD in wp-config.php" >&2
+        fi
+        rm -f "$TMP_PW"
+    fi
 fi
 
 # ── Object cache (bonus): wire an EXISTING install up to Redis ───────
