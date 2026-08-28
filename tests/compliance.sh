@@ -957,6 +957,129 @@ R03EOF
 fi
 
 # ─────────────────────────────────────────────────────────────────────
+section "[E] Evaluation sheet (per-service walkthrough)"
+# ─────────────────────────────────────────────────────────────────────
+# The points an evaluator works through by hand, automated so a regression
+# cannot reach the defence unnoticed.
+if [ $RUNNING -eq 0 ]; then
+    skip "E** stack not running"
+else
+    WPX="docker exec wordpress wp --allow-root --path=/var/www/html"
+
+    # E01/E02 a Dockerfile per service, and no NGINX inside the app services.
+    # R11 checks the built image; this checks the source, which is what the
+    # evaluator actually reads.
+    ok=1
+    for svc in wordpress mariadb; do
+        DF="srcs/requirements/$svc/Dockerfile"
+        [ -s "$DF" ] || { ok=0; fail "E01 $DF missing or empty"; continue; }
+        # Match nginx as an installed package or a command, not the word in a
+        # comment explaining that it is deliberately absent.
+        if grep -vE '^[[:space:]]*#' "$DF" | grep -qiE '(apk add|apt-get install|yum install)[^&|]*[[:space:]]nginx([[:space:]]|$)|^[[:space:]]*(CMD|ENTRYPOINT).*nginx'; then
+            ok=0; fail "E02 $DF installs or runs nginx"
+        fi
+    done
+    [ $ok -eq 1 ] && pass "E01/E02 wordpress and mariadb have their own Dockerfile, neither installs nginx"
+
+    # E03 the containers exist as far as compose is concerned
+    CPS=$(docker compose -f "$COMPOSE_FILE" ps --format '{{.Name}} {{.State}}' 2>/dev/null)
+    ok=1
+    for c in nginx wordpress mariadb; do
+        printf '%s\n' "$CPS" | grep -qE "^$c +running" || { ok=0; fail "E03 'docker compose ps' does not show $c running"; }
+    done
+    [ $ok -eq 1 ] && pass "E03 docker compose ps shows nginx, wordpress and mariadb running"
+
+    # E04 volumes, checked the way the sheet says: docker volume inspect
+    ok=1
+    for v in $(docker volume ls -q 2>/dev/null | grep -E 'wp_data|db_data'); do
+        DEV=$(docker volume inspect --format '{{index .Options "device"}}' "$v" 2>/dev/null)
+        case "$DEV" in
+            /home/$LOGIN/data/*) : ;;
+            *) ok=0; fail "E04 volume $v device is '$DEV', not under /home/$LOGIN/data/" ;;
+        esac
+    done
+    [ $ok -eq 1 ] && pass "E04 docker volume inspect shows /home/$LOGIN/data/ for both volumes"
+
+    # E05 the administrator can REALLY sign in over HTTPS.
+    # R06 only proved the login form is reachable; this posts credentials and
+    # checks WordPress issues a logged-in cookie and serves the dashboard.
+    ADMIN_USER=$(sed -n 's/^WP_ADMIN_USER=//p' srcs/.env | head -1)
+    ADMIN_PW=$(sed -n 1p secrets/credentials.txt 2>/dev/null)
+    if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PW" ]; then
+        JAR=$(mktemp)
+        curl -ks -c "$JAR" --max-time 20 "https://${DOMAIN}/wp-login.php" -o /dev/null
+        LOGIN_BODY=$(curl -ks -b "$JAR" -c "$JAR" -L --max-time 25 \
+            --data-urlencode "log=${ADMIN_USER}" \
+            --data-urlencode "pwd=${ADMIN_PW}" \
+            --data-urlencode "wp-submit=Log In" \
+            --data-urlencode "redirect_to=https://${DOMAIN}/wp-admin/" \
+            --data-urlencode "testcookie=1" \
+            "https://${DOMAIN}/wp-login.php")
+        if grep -q 'wordpress_logged_in' "$JAR" && printf '%s' "$LOGIN_BODY" | grep -qi 'dashboard\|wp-admin-bar\|adminmenu'; then
+            pass "E05 administrator '$ADMIN_USER' signs in over HTTPS and reaches the dashboard"
+        else
+            fail "E05 administrator sign-in did not reach the dashboard"
+        fi
+        rm -f "$JAR"
+    else
+        warn "E05 could not read admin credentials (run make setup)"
+    fi
+
+    # E06 a comment can be added by the non-administrator user and shows up
+    POST_ID=$($WPX post list --post_type=post --post_status=publish --posts_per_page=1 --field=ID 2>/dev/null | head -1)
+    WPUSER=$(sed -n 's/^WP_USER=//p' srcs/.env | head -1)
+    if [ -n "$POST_ID" ] && [ -n "$WPUSER" ]; then
+        UID_=$($WPX user get "$WPUSER" --field=ID 2>/dev/null)
+        STAMP="compliance-comment-$$"
+        CID=$($WPX comment create --comment_post_ID="$POST_ID" --comment_content="$STAMP" \
+                --user_id="${UID_:-0}" --comment_approved=1 --porcelain 2>/dev/null)
+        PLINK=$($WPX post get "$POST_ID" --field=url 2>/dev/null)
+        : "${PLINK:=https://${DOMAIN}/?p=${POST_ID}}"
+        if [ -n "$CID" ] && curl -ksL --max-time 25 "$PLINK" | grep -qF "$STAMP"; then
+            pass "E06 user '$WPUSER' can comment, and the comment appears on the site"
+        else
+            fail "E06 comment by '$WPUSER' did not appear at $PLINK" "comment id=${CID:-none}"
+        fi
+        [ -n "$CID" ] && $WPX comment delete "$CID" --force > /dev/null 2>&1
+    else
+        warn "E06 no published post or WP_USER to comment with"
+    fi
+
+    # E07 editing a page is reflected on the website.
+    # The dashboard writes through the same API wp-cli uses, so this exercises
+    # the same path end to end without driving a browser.
+    PAGE_ID=$($WPX post list --post_type=page --post_status=publish --posts_per_page=1 --field=ID 2>/dev/null | head -1)
+    if [ -n "$PAGE_ID" ]; then
+        OLD=$($WPX post get "$PAGE_ID" --field=content 2>/dev/null)
+        MARK="compliance-edit-$$"
+        $WPX post update "$PAGE_ID" --post_content="${OLD}
+<p>${MARK}</p>" > /dev/null 2>&1
+        LINK=$($WPX post get "$PAGE_ID" --field=url 2>/dev/null)
+        if curl -ks --max-time 20 "$LINK" | grep -qF "$MARK"; then
+            pass "E07 a page edit is visible on the website"
+        else
+            fail "E07 a page edit did not appear at $LINK"
+        fi
+        printf '%s' "$OLD" | $WPX post update "$PAGE_ID" --post_content=- > /dev/null 2>&1
+    else
+        warn "E07 no published page to edit"
+    fi
+
+    # E08 the database can be logged into and is not empty
+    DBUSER=$(sed -n 's/^MYSQL_USER=//p' srcs/.env | head -1)
+    DBNAME=$(sed -n 's/^MYSQL_DATABASE=//p' srcs/.env | head -1)
+    ROWS=$(printf 'SELECT COUNT(*) FROM %s;\n' "${PFX:-wp_}posts" \
+        | docker exec -i mariadb sh -c 'exec mariadb -u '"$DBUSER"' -p"$(cat /run/secrets/db_password)" -N -B '"$DBNAME" 2>/dev/null)
+    TBLS=$(printf 'SHOW TABLES;\n' \
+        | docker exec -i mariadb sh -c 'exec mariadb -u '"$DBUSER"' -p"$(cat /run/secrets/db_password)" -N -B '"$DBNAME" 2>/dev/null | grep -c .)
+    if [ "${TBLS:-0}" -gt 0 ] 2>/dev/null && [ "${ROWS:-0}" -gt 0 ] 2>/dev/null; then
+        pass "E08 database login works as '$DBUSER'; $DBNAME holds $TBLS tables and $ROWS posts"
+    else
+        fail "E08 could not log into the database or it is empty" "tables=${TBLS:-0} posts=${ROWS:-0}"
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────
 section "[B] Bonus"
 # ─────────────────────────────────────────────────────────────────────
 # The bonus is optional, and it is only looked at if the mandatory part is

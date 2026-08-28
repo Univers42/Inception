@@ -23,6 +23,14 @@ while ( have_posts() ) :
 			<div class="post-nav-prev"><?php previous_post_link( '%link', '← %title' ); ?></div>
 			<div class="post-nav-next"><?php next_post_link( '%link', '%title →' ); ?></div>
 		</nav>
+		<?php
+		// Renders comments.php. WordPress shows no comment form at all unless a
+		// template asks for it, however open the discussion settings are — and
+		// the evaluation expects a user to be able to leave a comment.
+		if ( comments_open() || get_comments_number() ) {
+			comments_template();
+		}
+		?>
 	</div>
 </article>
 	<?php

@@ -155,6 +155,35 @@ if [ -f /var/www/html/wp-config.php ]; then
     fi
 fi
 
+# ── Reconcile the WordPress account passwords with the secret ────────
+# The third place credentials were cached in surviving state, and the one that
+# fails the evaluation sheet most directly: "Sign in with the administrator
+# account to access the Administration dashboard."
+#
+# wp_users lives in the database, which lives on the host under
+# /home/<login>/data — so it outlives `docker volume rm` exactly as
+# wp-config.php and the mariadb datadir do. After a fresh clone regenerates
+# secrets/credentials.txt, WordPress still holds the previous passwords and
+# every login attempt returns login_error.
+#
+# Only rewritten when the current secret does NOT authenticate, so a normal
+# boot does no database writes and the bcrypt hash is left alone.
+if wp core is-installed --allow-root --path=/var/www/html 2>/dev/null; then
+    sync_wp_password() { # $1 = login, $2 = wanted password
+        [ -n "$1" ] && [ -n "$2" ] || return 0
+        wp eval --allow-root --path=/var/www/html \
+            "exit( is_wp_error( wp_authenticate( \$argv[0], \$argv[1] ) ) ? 1 : 0 );" \
+            "$1" "$2" > /dev/null 2>&1 && return 0
+        echo "[entrypoint] '$1' password does not match the secret — resetting it ..."
+        wp user update "$1" --user_pass="$2" --skip-email \
+            --allow-root --path=/var/www/html > /dev/null 2>&1 \
+            || echo "[entrypoint] WARN: could not reset the password for '$1'" >&2
+    }
+    sync_wp_password "$WP_ADMIN_USER" "$WP_ADMIN_PASSWORD"
+    sync_wp_password "$WP_USER"       "$WP_USER_PASSWORD"
+fi
+
+# ── Object cache (bonus): wire an EXISTING install up to Redis ───────
 # ── Object cache (bonus): wire an EXISTING install up to Redis ───────
 # The wp-config.php heredoc above only runs on a first install, and the site
 # volume outlives image rebuilds — so an install created before Redis existed
