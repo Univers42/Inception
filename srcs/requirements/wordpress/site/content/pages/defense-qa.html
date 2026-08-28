@@ -19,7 +19,7 @@
 superuser   administrator[/out]
 
 <h2>PID 1, crashes &amp; restarts</h2>
-<p><strong>Why does every entrypoint end with <code>exec</code>?</strong> The daemon replaces the shell and becomes PID 1 — it receives Docker's signals directly and no zombie shell fronts it. That's also why <code>tail -f</code>, <code>bash</code>, <code>sleep infinity</code> and <code>while true</code> are prohibited keep-alive hacks.</p>
+<p><strong>Why does every entrypoint end with <code>exec</code>?</strong> The daemon replaces the shell and becomes PID 1 — it receives Docker's signals directly and no zombie shell fronts it. That's also why following a file forever, a bare shell, an endless sleep and an infinite shell loop are prohibited keep-alive hacks.</p>
 [cmd]docker exec nginx ps -o pid,comm[/cmd]
 [out]PID   COMMAND
 1     nginx[/out]

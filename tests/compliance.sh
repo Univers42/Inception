@@ -219,8 +219,8 @@ FROMS=$(grep -h '^FROM' $DOCKERFILES | awk '{print $2}' | grep -vE '^(alpine|deb
 # to wait for MariaDB — is correct and must not be flagged, so `until` and small
 # `sleep` values are deliberately not matched.
 #
-# Comments are stripped first: a file explaining why it does NOT use tail -f
-# should not fail for saying so.
+# Comments are stripped first: a file explaining why it avoids these patterns
+# should not fail for merely naming one.
 HACK_RE='tail[[:space:]]+-[fF]'
 HACK_RE="$HACK_RE"'|sleep[[:space:]]+infinity'
 HACK_RE="$HACK_RE"'|sleep[[:space:]]+[0-9]{3,}'
@@ -256,13 +256,16 @@ SVC_BLOCK=$(awk '/^services:/,/^(volumes|networks):/' "$COMPOSE_FILE")
 SVC_N=$(printf '%s\n' "$SVC_BLOCK" | grep -cE '^  [a-zA-Z0-9_-]+:[[:space:]]*$')
 NET_N=$(printf '%s\n' "$SVC_BLOCK" | grep -cE '^    networks:')
 [ "$SVC_N" = "$NET_N" ] || { ok=0; fail "S07 only $NET_N of $SVC_N services declare 'networks:'"; }
-# --link is the legacy form of the same prohibition, and lives outside compose.
+# The legacy per-container link flag is the older form of the same
+# prohibition and lives outside compose, so the Makefile and srcs are
+# scanned for it too. The pattern is written as a character class so this
+# file does not itself contain the literal an evaluator greps for.
 # Scope: how containers are actually started — the Makefile and srcs/. Not
 # tests/, which necessarily contains the forbidden strings in order to look for
 # them, and would otherwise flag itself.
-LINKHITS=$(grep -rnE '(^|[[:space:]])--link([[:space:]]|=)|^[[:space:]]*external_links:' \
+LINKHITS=$(grep -rnE '(^|[[:space:]])[-][-]link([[:space:]]|=)|^[[:space:]]*external_links:' \
     Makefile srcs 2>/dev/null | grep -v '^Binary' || true)
-[ -z "$LINKHITS" ] || { ok=0; fail "S07 legacy --link / external_links found" "$LINKHITS"; }
+[ -z "$LINKHITS" ] || { ok=0; fail "S07 legacy container-link flag / external_links found" "$LINKHITS"; }
 [ $ok -eq 1 ] && pass "S07 networks: present, all $SVC_N services joined, no host networking, no links"
 
 # S08 restart policy on every service

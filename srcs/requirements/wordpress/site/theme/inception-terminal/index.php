@@ -8,7 +8,7 @@ get_header();
 <section class="archive">
 	<div class="shell shell-narrow">
 		<header class="archive-head">
-			<h1 class="section-title"><span class="section-prompt">$</span> tail -f journal.log</h1>
+			<h1 class="section-title"><span class="section-prompt">$</span> cat journal.log</h1>
 			<p class="archive-sub">Engineering journal — the build, the bugs, the numbers.</p>
 		</header>
 

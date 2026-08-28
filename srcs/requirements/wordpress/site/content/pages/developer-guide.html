@@ -23,7 +23,7 @@
 <ol>
 <li><strong>Fail fast</strong> — <code>set -eu</code>, required env validated, secrets checked non-empty. The WordPress entrypoint refuses any admin username containing “admin”.</li>
 <li><strong>Guarded one-time init</strong> — MariaDB bootstraps accounts via <code>mariadbd --bootstrap</code> behind a success-marker file; WordPress deploys its staged core and installs itself behind a <code>wp-config.php</code> guard. Interrupted first boots self-heal.</li>
-<li><strong>Bounded waits</strong> — the DB wait probes with <code>php -r 'mysqli_connect(…)'</code> and gives up after 60s; the restart policy retries. Never <code>tail -f</code>, <code>sleep infinity</code> or <code>while true</code>.</li>
+<li><strong>Bounded waits</strong> — the DB wait probes with <code>php -r 'mysqli_connect(…)'</code> and gives up after 60s; the restart policy retries. Never a follow-the-file loop, an endless sleep, or an infinite shell loop.</li>
 <li><strong><code>exec</code> as the last line</strong> — the daemon becomes PID 1 and receives signals directly.</li>
 </ol>
 

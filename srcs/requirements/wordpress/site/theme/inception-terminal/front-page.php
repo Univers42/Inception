@@ -1,7 +1,7 @@
 <?php
 /**
  * Front page v2 — the page is one continuous shell session.
- * Banner → boot output → aliases → `ls -la ./docs` → `tail -f journal.log`.
+ * Banner → boot output → aliases → `ls -la ./docs` → `cat journal.log`.
  * Structural devices encode real metadata (reading time, modified dates).
  */
 get_header();
