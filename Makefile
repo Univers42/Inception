@@ -16,15 +16,26 @@ COMPOSE  = docker compose -f srcs/docker-compose.yml
 # `make ... SHELL=/path/to/shell`. Exported, so the recursive `make certs`
 # and the scripts themselves inherit the same choice without re-probing.
 ifeq ($(origin SCRIPT_SH),undefined)
-SCRIPT_SH := $(shell \
-	up=$$(ps -o ppid= -p $$PPID 2>/dev/null | tr -d " "); \
-	launcher=$$(ps -o comm= -p "$$up" 2>/dev/null | sed "s/^-//"); \
-	for c in "$$launcher" "$$SHELL" /bin/sh; do \
-		[ -n "$$c" ] || continue; \
-		p=$$(command -v "$$c" 2>/dev/null) || continue; \
-		"$$p" -c 'a=1; f() { [ "$$a" = 1 ]; }; f && printf "%s" ok' 2>/dev/null \
-			| grep -q ok && { printf "%s" "$$p"; break; }; \
-	done)
+# No shell takes part in finding the launcher: make execs a $(shell ...) line
+# without metacharacters directly, so `cat /proc/self/stat` is cat itself and
+# its 4th field is make's pid, whose stat names its parent, whose comm is the
+# launcher. Each candidate then runs tests/launcher_probe.sh itself and prints
+# INC_SH=<its path> only if it is a POSIX shell; a launcher whose name is
+# not a shell's (a `timeout` in between, an editor) is not even tried, so
+# it cannot print its usage into the run; and they are tried one at a
+# time ($(if) expands only the branch it takes), so a hellish launch never
+# starts sh even to ask it. Until this line every
+# $(shell) would otherwise have been /bin/sh -c, in a run that claims to be
+# the launcher's throughout.
+_inc_ppid     := $(word 4,$(shell cat /proc/$(word 4,$(shell cat /proc/self/stat))/stat))
+_inc_launcher := $(shell cat /proc/$(_inc_ppid)/comm)
+_inc_login    := $(notdir $(shell printenv SHELL))
+_inc_shells   := hellish hellish.real bash zsh dash sh ksh mksh ash busybox
+_inc_try = $(if $(filter $(_inc_shells),$(notdir $(1))),$(filter INC_SH=%,$(shell $(1) tests/launcher_probe.sh)))
+_inc_found := $(call _inc_try,$(_inc_launcher))
+_inc_found := $(if $(_inc_found),$(_inc_found),$(call _inc_try,$(_inc_login)))
+_inc_found := $(if $(_inc_found),$(_inc_found),$(call _inc_try,/bin/sh))
+SCRIPT_SH := $(patsubst INC_SH=%,%,$(firstword $(_inc_found)))
 SCRIPT_SH := $(if $(strip $(SCRIPT_SH)),$(strip $(SCRIPT_SH)),/bin/sh)
 endif
 export SCRIPT_SH
