@@ -6,6 +6,29 @@ export COMPOSE_BAKE             = true
 export BUILDX_NO_DEFAULT_ATTESTATIONS = 1
 
 COMPOSE  = docker compose -f srcs/docker-compose.yml
+
+# ── Which shell interprets the recipes and the test scripts ──────────────────
+# make parses this file; the recipes and tests/*.sh are interpreted by a
+# shell. Use the shell you launched make FROM -- hellish when that is your
+# login shell in the VM -- and fall back to /bin/sh. The launcher is make's
+# parent process; a candidate is used only if it runs a POSIX snippet, so a
+# shell that cannot interpret these recipes is never picked. Override with
+# `make ... SHELL=/path/to/shell`. Exported, so the recursive `make certs`
+# and the scripts themselves inherit the same choice without re-probing.
+ifeq ($(origin SCRIPT_SH),undefined)
+SCRIPT_SH := $(shell \
+	up=$$(ps -o ppid= -p $$PPID 2>/dev/null | tr -d " "); \
+	launcher=$$(ps -o comm= -p "$$up" 2>/dev/null | sed "s/^-//"); \
+	for c in "$$launcher" "$$SHELL" /bin/sh; do \
+		[ -n "$$c" ] || continue; \
+		p=$$(command -v "$$c" 2>/dev/null) || continue; \
+		"$$p" -c 'a=1; f() { [ "$$a" = 1 ]; }; f && printf "%s" ok' 2>/dev/null \
+			| grep -q ok && { printf "%s" "$$p"; break; }; \
+	done)
+SCRIPT_SH := $(if $(strip $(SCRIPT_SH)),$(strip $(SCRIPT_SH)),/bin/sh)
+endif
+export SCRIPT_SH
+SHELL := $(SCRIPT_SH)
 DATA_DIR = /home/dlesieur/data
 LOGIN    = dlesieur
 
@@ -102,16 +125,16 @@ status:
 
 # ── Compliance tests & benchmarks ────────────────────────────────────
 test:
-	@sh tests/compliance.sh
+	@$(SCRIPT_SH) tests/compliance.sh
 
 test-deep:
-	@sh tests/compliance.sh --deep
+	@$(SCRIPT_SH) tests/compliance.sh --deep
 
 bench:
-	@sh tests/bench.sh
+	@$(SCRIPT_SH) tests/bench.sh
 
 bench-full:
-	@sh tests/bench.sh --with-boot
+	@$(SCRIPT_SH) tests/bench.sh --with-boot
 
 # ── WordPress health check ───────────────────────────────────────────
 WP      = docker exec wordpress wp --allow-root --path=/var/www/html
@@ -119,7 +142,7 @@ SITE    = https://$(LOGIN).42.fr
 ADMIN   = $(SITE)/wp-admin
 
 run_wp: up
-	@echo "\n\033[1;33m⏳ Waiting for containers to be ready…\033[0m"
+	@printf '%b\n' "\n\033[1;33m⏳ Waiting for containers to be ready…\033[0m"
 	@until docker exec mariadb mariadb-admin ping -h localhost --silent 2>/dev/null; do \
 		printf "."; sleep 2; \
 	done && echo " MariaDB ✔"
@@ -130,29 +153,29 @@ run_wp: up
 		printf "."; sleep 2; \
 	done && echo " NGINX ✔"
 	@echo ""
-	@echo "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-	@echo "\033[1;34m  WordPress core\033[0m"
-	@echo "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+	@printf '%b\n' "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+	@printf '%b\n' "\033[1;34m  WordPress core\033[0m"
+	@printf '%b\n' "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
 	@$(WP) core version
-	@$(WP) core verify-checksums && echo "Checksums: \033[0;32mOK\033[0m" || echo "Checksums: \033[0;31m⚠ mismatch\033[0m"
-	@echo "\n\033[1;34m━━ Site \033[0m"
+	@$(WP) core verify-checksums && printf '%b\n' "Checksums: \033[0;32mOK\033[0m" || printf '%b\n' "Checksums: \033[0;31m⚠ mismatch\033[0m"
+	@printf '%b\n' "\n\033[1;34m━━ Site \033[0m"
 	@$(WP) option get siteurl
 	@$(WP) option get blogname
-	@echo "\n\033[1;34m━━ Database \033[0m"
-	@$(WP) eval 'global $$wpdb; echo "DB connection OK — server " . $$wpdb->db_version() . "\n";'
-	@echo "\n\033[1;34m━━ Users \033[0m"
+	@printf '%b\n' "\n\033[1;34m━━ Database \033[0m"
+	@$(WP) eval 'global $$wpdb; printf '%b\n' "DB connection OK — server " . $$wpdb->db_version() . "\n";'
+	@printf '%b\n' "\n\033[1;34m━━ Users \033[0m"
 	@$(WP) user list --fields=ID,user_login,roles,user_email
-	@echo "\n\033[1;34m━━ Themes \033[0m"
+	@printf '%b\n' "\n\033[1;34m━━ Themes \033[0m"
 	@$(WP) theme list --fields=name,status,version
-	@echo "\n\033[1;34m━━ PHP / OPcache \033[0m"
-	@$(WP) eval 'echo "PHP " . PHP_VERSION . "\n"; echo "OPcache: " . (function_exists("opcache_get_status") && opcache_get_status() ? "enabled" : "disabled") . "\n";'
+	@printf '%b\n' "\n\033[1;34m━━ PHP / OPcache \033[0m"
+	@$(WP) eval 'printf '%b\n' "PHP " . PHP_VERSION . "\n"; printf '%b\n' "OPcache: " . (function_exists("opcache_get_status") && opcache_get_status() ? "enabled" : "disabled") . "\n";'
 	@echo ""
-	@echo "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-	@echo "\033[1;32m✔ All services are up and healthy!\033[0m"
-	@echo "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+	@printf '%b\n' "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+	@printf '%b\n' "\033[1;32m✔ All services are up and healthy!\033[0m"
+	@printf '%b\n' "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
 	@printf "  \033[1mSite:        \033[0m\033]8;;$(SITE)\033\\$(SITE)\033]8;;\033\\\n"
 	@printf "  \033[1mAdmin panel: \033[0m\033]8;;$(ADMIN)\033\\$(ADMIN)\033]8;;\033\\\n"
-	@echo "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n"
+	@printf '%b\n' "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n"
 	@xdg-open "$(SITE)" 2>/dev/null || true
 
 # ── Trust the local CA on the host system ────────────────────────────
@@ -209,9 +232,9 @@ trust:
 		echo "[trust] ERROR: no browser NSS database was updated"; exit 1; \
 	fi
 	@if pgrep -x firefox >/dev/null 2>&1 || pgrep -f "chromium|chrome" >/dev/null 2>&1; then \
-		echo "\033[1;33m⚠  Browsers are RUNNING — quit them completely (all windows) and reopen.\033[0m"; \
+		printf '%b\n' "\033[1;33m⚠  Browsers are RUNNING — quit them completely (all windows) and reopen.\033[0m"; \
 	fi
-	@echo "\033[1;32m✔ CA trusted: system store, browser NSS databases, Firefox policy.\033[0m"
+	@printf '%b\n' "\033[1;32m✔ CA trusted: system store, browser NSS databases, Firefox policy.\033[0m"
 
 # ── Cleanup ──────────────────────────────────────────────────────────
 clean: down
