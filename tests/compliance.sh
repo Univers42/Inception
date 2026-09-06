@@ -1076,6 +1076,26 @@ R03EOF
     printf '%s' "$NGX_V" | grep -q 'wp_data:/var/www/html' \
         || warn "R23 nginx does not share the site volume — static assets may be served from a stale copy"
     [ $ok -eq 1 ] && pass "R23 db volume only in mariadb; site volume in wordpress (and nginx for static files)"
+
+    # R24 the shell inside every container answers, and it is the same one
+    #
+    # Every entrypoint, every healthcheck's `sh -c` and every `docker exec ...
+    # sh` in this file run under the image's /bin/sh. The images take the shell
+    # the host was built with (srcs/shell/, see the Dockerfiles), so what it is
+    # depends on the host; that it works, and that all containers agree, does
+    # not.
+    ok=1; SHELLS=""
+    for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^(nginx|wordpress|mariadb|redis|ftp|staticsite|adminer|dbbackup)$'); do
+        S=$(docker exec "$c" sh -c 'printf "%s" "$(readlink -f /bin/sh)"; v=$(sh --version 2>/dev/null | head -1); [ -z "$v" ] || printf " (%s)" "$v"' 2>/dev/null)
+        [ -n "$S" ] || { ok=0; fail "R24 /bin/sh does not answer in $c"; continue; }
+        SHELLS="${SHELLS}${S}
+"
+    done
+    DISTINCT=$(printf '%s' "$SHELLS" | sort -u | grep -c .)
+    if [ "$DISTINCT" -gt 1 ]; then
+        ok=0; fail "R24 the containers do not agree on /bin/sh" "$(printf '%s' "$SHELLS" | sort -u | tr '\n' ';')"
+    fi
+    [ $ok -eq 1 ] && pass "R24 every container runs its scripts under one shell: $(printf '%s' "$SHELLS" | head -1)"
 fi
 
 # ─────────────────────────────────────────────────────────────────────

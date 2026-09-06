@@ -7,6 +7,8 @@ services:
     build:
       context: ./requirements/nginx
       dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
     image: nginx:inception
     container_name: nginx
     ports:
@@ -34,6 +36,8 @@ services:
     build:
       context: ./requirements/wordpress
       dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
     image: wordpress:inception
     container_name: wordpress
     volumes:
@@ -68,6 +72,8 @@ services:
     build:
       context: ./requirements/mariadb
       dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
     image: mariadb:inception
     container_name: mariadb
     volumes:
@@ -89,6 +95,8 @@ services:
     build:
       context: ./requirements/bonus/staticsite
       dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
     image: staticsite:inception
     container_name: staticsite
     ports:
@@ -104,6 +112,8 @@ services:
     build:
       context: ./requirements/bonus/redis
       dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
     image: redis:inception
     container_name: redis
     networks:
@@ -115,6 +125,8 @@ services:
     build:
       context: ./requirements/bonus/ftp
       dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
     image: ftp:inception
     container_name: ftp
     ports:
@@ -137,6 +149,8 @@ services:
     build:
       context: ./requirements/bonus/adminer
       dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
     image: adminer:inception
     container_name: adminer
     ports:
@@ -155,6 +169,8 @@ services:
     build:
       context: ./requirements/bonus/dbbackup
       dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
     image: dbbackup:inception
     container_name: dbbackup
     volumes:
@@ -163,6 +179,11 @@ services:
       - inception
     depends_on:
       mariadb:
+        condition: service_healthy
+      # Healthy wordpress == `wp core install` has run == the schema exists.
+      # Started on mariadb alone, the first dump was taken from an empty
+      # database, and an empty dump is not a backup.
+      wordpress:
         condition: service_healthy
     restart: unless-stopped
     environment:

@@ -222,14 +222,20 @@ sh /usr/src/inception-site/install.sh \
 # NON-FATAL, like the site provisioning above: a cache is an optimisation, and a
 # Redis problem must never be able to stop WordPress from booting.
 enable_redis_cache() {
-    wp plugin is-installed redis-cache --allow-root --path=/var/www/html 2>/dev/null \
-        || wp plugin install redis-cache --allow-root --path=/var/www/html || return 1
-    wp plugin is-active redis-cache --allow-root --path=/var/www/html 2>/dev/null \
-        || wp plugin activate redis-cache --allow-root --path=/var/www/html || return 1
+    # The site volume persists across boots, so an install interrupted last time
+    # leaves a half-written plugin directory: it exists, so `wp plugin install`
+    # refuses it ("Destination folder already exists") while WordPress never
+    # registers it — the plugin is then neither installable nor active, and the
+    # cache stays off for good. --force overwrites whatever is there, so a fresh
+    # boot and a recovery boot take the same path.
+    if ! wp plugin is-active redis-cache --allow-root --path=/var/www/html 2>/dev/null; then
+        wp plugin install redis-cache --force --activate \
+            --allow-root --path=/var/www/html || return 1
+    fi
     # `wp redis enable` writes wp-content/object-cache.php — the drop-in that
-    # actually routes WordPress's cache calls to Redis. Without it the plugin is
-    # installed and the cache is still doing nothing.
-    [ -f /var/www/html/wp-content/object-cache.php ] \
+    # actually routes WordPress's cache calls to Redis. A zero-byte file from an
+    # interrupted enable passes `-f` yet routes nothing, so require it non-empty.
+    [ -s /var/www/html/wp-content/object-cache.php ] \
         || wp redis enable --allow-root --path=/var/www/html || return 1
 }
 if enable_redis_cache; then

@@ -33,4 +33,13 @@ EXPOSE 443
 HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --start-interval=500ms --retries=3 \
     CMD ["wget", "--no-check-certificate", "--spider", "-q", "https://localhost:443/"]
 
+# The shell that runs this container's scripts: the entrypoint, the
+# healthcheck's `sh -c`, whatever `docker exec ... sh` is asked. `make setup`
+# drops the static shell the host was built with into srcs/shell/ when it has
+# one (hellish, in the born2root guest), and /bin/sh becomes that; with nothing
+# there, busybox's sh stays. Last, so every package script above ran under the
+# shell it was written for.
+COPY --from=shell / /usr/local/lib/inception-shell/
+RUN [ ! -x /usr/local/lib/inception-shell/sh ] || ln -sf /usr/local/lib/inception-shell/sh /bin/sh
+
 ENTRYPOINT ["entrypoint.sh"]

@@ -29,6 +29,22 @@ SCRIPT_SH := $(if $(strip $(SCRIPT_SH)),$(strip $(SCRIPT_SH)),/bin/sh)
 endif
 export SCRIPT_SH
 SHELL := $(SCRIPT_SH)
+
+# ── Which shell interprets the scripts INSIDE the containers ─────────────────
+# Every image links /bin/sh to srcs/shell/sh when that file exists (see
+# srcs/shell/README.md), so the entrypoints, the healthchecks and every
+# `docker exec ... sh` run under the same shell the host does. It has to be a
+# static binary -- the images are Alpine, nothing from the host's libc can
+# follow -- so: an explicit INCEPTION_SHELL, else the launching shell itself
+# when it is static, else /usr/bin/hellish.real (what born2root installs in
+# its guest), else nothing and the images keep busybox's sh.
+ifeq ($(origin INCEPTION_SHELL),undefined)
+INCEPTION_SHELL := $(shell for c in "$(SCRIPT_SH)" /usr/bin/hellish.real; do \
+	[ -x "$$c" ] || continue; \
+	ldd "$$c" 2>&1 | grep -qiE 'not a (valid )?dynamic|statically' && { printf "%s" "$$c"; break; }; \
+	done)
+endif
+export INCEPTION_SHELL
 DATA_DIR = /home/dlesieur/data
 LOGIN    = dlesieur
 
@@ -73,6 +89,15 @@ setup:
 	fi
 	@if ! grep -q "$(LOGIN).42.fr" /etc/hosts 2>/dev/null; then \
 		echo "127.0.0.1 $(LOGIN).42.fr" | sudo tee -a /etc/hosts > /dev/null; \
+	fi
+	@mkdir -p srcs/shell; \
+	if [ -n "$(INCEPTION_SHELL)" ]; then \
+		if ! cmp -s "$(INCEPTION_SHELL)" srcs/shell/sh 2>/dev/null; then \
+			cp -f "$(INCEPTION_SHELL)" srcs/shell/sh && chmod 755 srcs/shell/sh; \
+			echo "[setup] /bin/sh in the images will be $(INCEPTION_SHELL)"; \
+		fi; \
+	elif [ -e srcs/shell/sh ]; then \
+		rm -f srcs/shell/sh; echo "[setup] no static shell at hand — the images keep busybox sh"; \
 	fi
 	@$(MAKE) --no-print-directory certs
 

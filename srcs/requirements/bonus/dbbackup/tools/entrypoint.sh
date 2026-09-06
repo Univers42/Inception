@@ -8,14 +8,19 @@ export MYSQL_DATABASE MYSQL_USER BACKUP_KEEP
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
 export BACKUP_DIR
 
-# Bounded wait for MariaDB. Without it the first backup races the database's
-# own startup and fails for no real reason on every `docker compose up`.
-echo "[entrypoint] Waiting for MariaDB ..."
+# Bounded wait for the WordPress schema, not merely for the port: the first
+# backup below is only worth taking once there are tables to dump. compose
+# already orders this service after a healthy wordpress; this is the same
+# condition checked where it matters, and it covers a restart of this
+# container alone.
+echo "[entrypoint] Waiting for the WordPress schema in MariaDB ..."
+PW="$(cat /run/secrets/db_password)"
 i=0
-until nc -z mariadb 3306 2>/dev/null; do
+until MYSQL_PWD="$PW" mariadb --host=mariadb --user="$MYSQL_USER" "$MYSQL_DATABASE" \
+        -N -B -e 'SHOW TABLES' 2>/dev/null | grep -q .; do
     i=$((i + 1))
-    if [ "$i" -ge 60 ]; then
-        echo "[entrypoint] ERROR: MariaDB unreachable after 60s" >&2
+    if [ "$i" -ge 300 ]; then
+        echo "[entrypoint] ERROR: no tables in ${MYSQL_DATABASE} after 300s" >&2
         exit 1
     fi
     sleep 1

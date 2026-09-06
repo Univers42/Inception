@@ -27,4 +27,13 @@ COPY --chmod=755 tools/entrypoint.sh /usr/local/bin/entrypoint.sh
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --start-interval=2s --retries=3 \
     CMD ["sh", "-c", "ls /backups/*.sql.gz >/dev/null 2>&1 && gzip -t \"$(ls -t /backups/*.sql.gz | head -1)\""]
 
+# The shell that runs this container's scripts: the entrypoint, the
+# healthcheck's `sh -c`, whatever `docker exec ... sh` is asked. `make setup`
+# drops the static shell the host was built with into srcs/shell/ when it has
+# one (hellish, in the born2root guest), and /bin/sh becomes that; with nothing
+# there, busybox's sh stays. Last, so every package script above ran under the
+# shell it was written for.
+COPY --from=shell / /usr/local/lib/inception-shell/
+RUN [ ! -x /usr/local/lib/inception-shell/sh ] || ln -sf /usr/local/lib/inception-shell/sh /bin/sh
+
 ENTRYPOINT ["entrypoint.sh"]

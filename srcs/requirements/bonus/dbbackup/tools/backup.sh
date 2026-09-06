@@ -38,7 +38,12 @@ if ! MYSQL_PWD="$PW" mariadb-dump \
 fi
 
 # A dump with no schema in it is not a backup, whatever its exit status said.
-TABLES=$(grep -c 'CREATE TABLE' "$RAW" 2>/dev/null || echo 0)
+# `grep -c` prints its count even when it is 0 and exits 1 for it; a
+# `|| echo 0` there yields two lines, "0" and "0", which `[ -eq ]` rejects --
+# and under `if` that rejection is merely false, so the guard never fired and
+# the empty first dump was kept. B05 caught the result, not the cause.
+TABLES=$(grep -c 'CREATE TABLE' "$RAW" 2>/dev/null || true)
+: "${TABLES:=0}"
 if [ "$TABLES" -eq 0 ]; then
     echo "[backup] $(date -Iseconds) FAILED: dump contains no CREATE TABLE ($(wc -c < "$RAW") bytes)" >&2
     rm -f "$RAW"

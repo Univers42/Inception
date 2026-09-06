@@ -14,3 +14,6 @@ srcs/.env
 *~
 .vscode/
 .idea/
+
+# The shell copied into the images by make setup (see srcs/shell/README.md)
+srcs/shell/sh
