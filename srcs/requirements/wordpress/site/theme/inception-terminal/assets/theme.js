@@ -1,11 +1,8 @@
-/* Inception Terminal v2 — session boot reveal + pointer spotlight.
-   Everything collapses to static under prefers-reduced-motion. */
 (function () {
 	'use strict';
 	document.addEventListener('DOMContentLoaded', function () {
 		var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-		/* The session types itself in, line by line */
 		var boot = document.querySelector('[data-boot]');
 		if (boot) {
 			var lines = boot.querySelectorAll('.boot-line');
@@ -20,8 +17,6 @@
 			}
 		}
 
-		/* Phosphor spotlight follows the pointer over the session
-		   (pointer devices only; rAF-throttled) */
 		var session = document.querySelector('.session');
 		if (session && !reduced && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
 			var raf = null;

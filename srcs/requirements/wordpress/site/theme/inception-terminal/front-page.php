@@ -1,9 +1,4 @@
 <?php
-/**
- * Front page v2 — the page is one continuous shell session.
- * Banner → boot output → aliases → `ls -la ./docs` → `cat journal.log`.
- * Structural devices encode real metadata (reading time, modified dates).
- */
 get_header();
 
 $has_kit = function_exists( 'inception_kit_icon' );
@@ -28,7 +23,7 @@ $has_kit = function_exists( 'inception_kit_icon' );
 			</h1>
 
 			<div class="session-run boot-line">
-				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; // phpcs:ignore ?><span class="run-cmd">make up</span>
+				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; ?><span class="run-cmd">make up</span>
 			</div>
 			<pre class="session-out boot-line"><span class="out-ok">✔ mariadb    healthy</span>   <span class="out-t">3.9s</span>
 <span class="out-ok">✔ wordpress  healthy</span>   <span class="out-t">6.1s</span>
@@ -36,7 +31,7 @@ $has_kit = function_exists( 'inception_kit_icon' );
 <span class="out-go">→ live at https://dlesieur.42.fr</span>  <span class="out-t">tls 1.2/1.3 · port 443 only</span></pre>
 
 			<div class="session-run boot-line">
-				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; // phpcs:ignore ?><span class="run-cmd">make bench</span>
+				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; ?><span class="run-cmd">make bench</span>
 			</div>
 			<pre class="session-out boot-line">cold build <span class="out-num">13s</span>   fresh boot <span class="out-num">7s</span>   compliance <span class="out-num">40/41</span>   images <span class="out-num">420MB</span></pre>
 
@@ -47,7 +42,7 @@ $has_kit = function_exists( 'inception_kit_icon' );
 			</div>
 
 			<div class="session-run boot-line session-idle">
-				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; // phpcs:ignore ?><span class="boot-caret" aria-hidden="true"></span>
+				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; ?><span class="boot-caret" aria-hidden="true"></span>
 			</div>
 		</div>
 	</div>

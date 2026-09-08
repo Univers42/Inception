@@ -1,11 +1,4 @@
 <?php
-/**
- * Plugin Name:       Inception Kit
- * Description:       Reusable terminal-styled components (shortcodes + helpers) powering the Inception documentation blog.
- * Version:           1.0.0
- * Author:            dlesieur
- * License:           MIT
- */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -18,9 +11,6 @@ define( 'INCEPTION_KIT_DIR', plugin_dir_path( __FILE__ ) );
 require_once INCEPTION_KIT_DIR . 'shortcodes.php';
 require_once INCEPTION_KIT_DIR . 'patterns.php';
 
-/**
- * Front-end assets for the kit components.
- */
 function inception_kit_assets() {
 	wp_enqueue_style(
 		'inception-kit',
@@ -38,13 +28,6 @@ function inception_kit_assets() {
 }
 add_action( 'wp_enqueue_scripts', 'inception_kit_assets' );
 
-/* ──────────────────────────────────────────────────────────────────
- *  Public helper API — reused by the theme and the shortcodes.
- * ────────────────────────────────────────────────────────────────── */
-
-/**
- * Estimated reading time of a post, in minutes (>= 1).
- */
 function inception_kit_reading_time( $post = null ) {
 	$post = get_post( $post );
 	if ( ! $post ) {
@@ -54,10 +37,6 @@ function inception_kit_reading_time( $post = null ) {
 	return max( 1, (int) ceil( $words / 220 ) );
 }
 
-/**
- * The shell-prompt fragment used across the site.
- * inception_kit_prompt( '~/docs' ) → dlesieur@inception:~/docs$
- */
 function inception_kit_prompt( $path = '~' ) {
 	return sprintf(
 		'<span class="ik-prompt"><span class="ik-prompt-user">dlesieur@inception</span><span class="ik-prompt-sep">:</span><span class="ik-prompt-path">%s</span><span class="ik-prompt-sign">$</span></span>',
@@ -65,11 +44,6 @@ function inception_kit_prompt( $path = '~' ) {
 	);
 }
 
-/**
- * Small inline SVG icon set (single family, 1.5px stroke, currentColor).
- * Icons: book, wrench, layers, gauge, shield, terminal, copy, check,
- *        arrow-right, clock, tag.
- */
 function inception_kit_icon( $name, $size = 16 ) {
 	$paths = array(
 		'book'     => '<path d="M3 4.5A1.5 1.5 0 0 1 4.5 3H8a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H3.5a.5.5 0 0 1-.5-.5v-12ZM21 4.5A1.5 1.5 0 0 0 19.5 3H16a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h4.5a.5.5 0 0 0 .5-.5v-12Z"/>',
@@ -95,9 +69,6 @@ function inception_kit_icon( $name, $size = 16 ) {
 	);
 }
 
-/**
- * Terminal-window wrapper used by shortcodes and theme templates.
- */
 function inception_kit_window( $title, $inner_html, $extra_class = '' ) {
 	return sprintf(
 		'<div class="ik-window %3$s"><div class="ik-window-bar"><span class="ik-dots" aria-hidden="true"><i class="ik-dot ik-dot-r"></i><i class="ik-dot ik-dot-y"></i><i class="ik-dot ik-dot-g"></i></span><span class="ik-window-title">%1$s</span></div><div class="ik-window-body">%2$s</div></div>',

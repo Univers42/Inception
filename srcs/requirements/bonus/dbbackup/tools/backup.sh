@@ -1,6 +1,4 @@
 #!/bin/sh
-# One backup run: dump, compress, verify, prune. Called by cron and once at
-# startup so there is always evidence the service works.
 set -eu
 
 : "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}"
@@ -14,16 +12,6 @@ OUT="${BACKUP_DIR}/${MYSQL_DATABASE}-${STAMP}.sql.gz"
 
 mkdir -p "$BACKUP_DIR"
 
-# --single-transaction takes the dump from one consistent snapshot without
-# locking the tables, so the site keeps serving while this runs.
-#
-# The dump goes to a plain file FIRST, deliberately not straight into a pipe.
-# `mariadb-dump ... | gzip > out` returns the exit status of gzip, the last
-# command in the pipeline — so a dump that failed with "Access denied" still
-# looked like success, and gzip of nothing is a perfectly valid 20-byte
-# archive that passes both `gzip -t` and a non-empty test. That is exactly how
-# an empty backup gets kept and is discovered to be worthless on the day it is
-# needed; it happened here, and B05 in the compliance suite caught it.
 RAW="${BACKUP_DIR}/.${MYSQL_DATABASE}-${STAMP}.sql.part"
 if ! MYSQL_PWD="$PW" mariadb-dump \
         --host=mariadb \
@@ -37,11 +25,6 @@ if ! MYSQL_PWD="$PW" mariadb-dump \
     exit 1
 fi
 
-# A dump with no schema in it is not a backup, whatever its exit status said.
-# `grep -c` prints its count even when it is 0 and exits 1 for it; a
-# `|| echo 0` there yields two lines, "0" and "0", which `[ -eq ]` rejects --
-# and under `if` that rejection is merely false, so the guard never fired and
-# the empty first dump was kept. B05 caught the result, not the cause.
 TABLES=$(grep -c 'CREATE TABLE' "$RAW" 2>/dev/null || true)
 : "${TABLES:=0}"
 if [ "$TABLES" -eq 0 ]; then
@@ -50,13 +33,9 @@ if [ "$TABLES" -eq 0 ]; then
     exit 1
 fi
 
-# Compress to a .part file and rename only on success, so an interrupted run
-# can never leave a truncated file that looks like a usable backup.
 if gzip -c "$RAW" > "$TMP" && gzip -t "$TMP" 2>/dev/null && [ -s "$TMP" ]; then
     rm -f "$RAW"
     mv "$TMP" "$OUT"
-    # Table count comes from the RAW dump, counted before compression — grepping
-    # the .gz would search binary and always report 0.
     echo "[backup] $(date -Iseconds) OK $(basename "$OUT") ($(wc -c < "$OUT") bytes, ${TABLES} tables)"
 else
     rm -f "$RAW" "$TMP"
@@ -64,7 +43,6 @@ else
     exit 1
 fi
 
-# Retention: keep the newest $BACKUP_KEEP, delete the rest.
 ls -t "${BACKUP_DIR}"/*.sql.gz 2>/dev/null | tail -n +"$((BACKUP_KEEP + 1))" | while read -r old; do
     rm -f "$old"
     echo "[backup] pruned $(basename "$old")"

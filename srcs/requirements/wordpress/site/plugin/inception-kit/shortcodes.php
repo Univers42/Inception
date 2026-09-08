@@ -1,37 +1,16 @@
 <?php
-/**
- * Inception Kit — reusable shortcodes.
- *
- * [term_window title="~/x"] … [/term_window]   terminal window frame
- * [cmd]make up[/cmd]                           prompt line with copy button
- * [out]✔ mariadb healthy[/out]                 command output line(s)
- * [callout type="info|ok|warn|err" title=""]   TUI callout box
- * [stats]13s|cold build;7s|fresh boot[/stats]  stat tile grid
- * [arch]                                       architecture diagram
- * [kbd]Ctrl+C[/kbd]                            key cap
- * [badge color="green"]v1.0[/badge]            inline badge
- */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/**
- * Keep WordPress texturize away from terminal content: it would turn
- * `--allow-root` into `–allow-root` (and smart-quote everything),
- * corrupting both the display and the copy-to-clipboard text.
- */
 function inception_kit_no_texturize( $shortcodes ) {
 	return array_merge( $shortcodes, array( 'cmd', 'out', 'term_window', 'arch' ) );
 }
 add_filter( 'no_texturize_shortcodes', 'inception_kit_no_texturize' );
 
-/**
- * Strip the artifacts wpautop injects into shortcode bodies before the
- * shortcode runs (<br />, stray <p> wrappers).
- */
 function inception_kit_clean_body( $content ) {
-	return trim( preg_replace( '#<br\s*/?>|</?p>#i', '', (string) $content ) );
+	return trim( preg_replace( ' ?>|</?p>#i', '', (string) $content ) );
 }
 
 /** [term_window title="dlesieur@inception:~"] */

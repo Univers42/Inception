@@ -3,7 +3,6 @@
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // ── Hero typing effect ────────────────────────────────────────────
   const typed = document.getElementById("typed");
   const HERO_TEXT = "Inception — static site";
   if (typed) {
@@ -20,7 +19,6 @@
     }
   }
 
-  // ── Live clock ───────────────────────────────────────────────────
   const clock = document.getElementById("clock");
   if (clock) {
     const pad = (n) => String(n).padStart(2, "0");
@@ -33,7 +31,6 @@
     setInterval(render, 1000);
   }
 
-  // ── Background: a slow, drifting grid of dots (canvas, no libs) ──
   const canvas = document.getElementById("bg");
   if (canvas && !reduceMotion && canvas.getContext) {
     const ctx = canvas.getContext("2d");

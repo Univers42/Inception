@@ -3,21 +3,16 @@ set -eu
 
 : "${DOMAIN_NAME:?}" "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}" "${WP_TITLE:?}"
 WP_REDIS_HOST="${WP_REDIS_HOST:-redis}"
-# Escape a value for a PHP single-quoted string literal. Defined at top
-# level because both the first-install heredoc and the reconcile step below
-# need it, and the latter runs outside the install branch.
 php_escape_pw() { printf %s "$1" | sed 's/\\/\\\\/g; s/'\''/\\'\''/g'; }
 WP_REDIS_PORT="${WP_REDIS_PORT:-6379}"
 : "${WP_ADMIN_USER:?}" "${WP_ADMIN_EMAIL:?}" "${WP_USER:?}" "${WP_USER_EMAIL:?}"
 
-# ── Subject rule: admin username must not contain admin/Admin/... ────
 case "$(printf %s "$WP_ADMIN_USER" | tr '[:upper:]' '[:lower:]')" in
     *admin*)
         echo "[entrypoint] ERROR: WP_ADMIN_USER '$WP_ADMIN_USER' must not contain 'admin'" >&2
         exit 1 ;;
 esac
 
-# ── Read Docker secrets (line 1 = admin pw, line 2 = editor pw) ─────
 WP_ADMIN_PASSWORD="$(sed -n 1p /run/secrets/credentials)"
 WP_USER_PASSWORD="$(sed -n 2p /run/secrets/credentials)"
 MYSQL_PASSWORD="$(cat /run/secrets/db_password)"
@@ -26,8 +21,6 @@ MYSQL_PASSWORD="$(cat /run/secrets/db_password)"
     exit 1
 }
 
-# ── Bounded wait until MariaDB accepts the application user ──────────
-# php-mysqli does the probing; no database client package required.
 echo "[entrypoint] Waiting for MariaDB ..."
 i=0
 until WPDB_PW="$MYSQL_PASSWORD" php -r '
@@ -43,7 +36,6 @@ until WPDB_PW="$MYSQL_PASSWORD" php -r '
 done
 echo "[entrypoint] MariaDB is ready."
 
-# ── One-time WordPress installation ──────────────────────────────────
 if [ ! -f /var/www/html/wp-config.php ]; then
     if [ ! -f /var/www/html/wp-includes/version.php ]; then
         echo "[entrypoint] Deploying WordPress core from image ..."
@@ -51,9 +43,6 @@ if [ ! -f /var/www/html/wp-config.php ]; then
     fi
 
     echo "[entrypoint] Writing wp-config.php ..."
-    # Heredoc instead of `wp config create` — saves a full PHP/WP-CLI boot.
-    # Salts are generated locally (hex only, so no quoting hazards);
-    # passwords are escaped for PHP single-quoted strings.
     php_escape() { printf %s "$1" | sed 's/\\/\\\\/g; s/'\''/\\'\''/g'; }
     SALTS="$(php -r 'foreach (["AUTH_KEY","SECURE_AUTH_KEY","LOGGED_IN_KEY","NONCE_KEY","AUTH_SALT","SECURE_AUTH_SALT","LOGGED_IN_SALT","NONCE_SALT"] as $k) printf("define( %c%s%c, %c%s%c );\n", 39, $k, 39, 39, bin2hex(random_bytes(32)), 39);')"
     cat > /var/www/html/wp-config.php <<EOF
@@ -119,22 +108,10 @@ EOF
         --user_pass="$WP_USER_PASSWORD" \
         --path=/var/www/html
 
-    # cp -a preserved nobody ownership from the image; only pick up any
-    # stragglers created as root during the install (full-tree chown -R
-    # over ~2600 files costs ~1s and is unnecessary)
     find /var/www/html -user root -exec chown nobody:nobody {} + 2>/dev/null || true
     echo "[entrypoint] WordPress setup complete."
 fi
 
-# ── Reconcile DB_PASSWORD in an EXISTING wp-config.php ───────────────
-# Same reason as the mariadb entrypoint. The site volume is a bind mount onto
-# the host, so wp-config.php survives `docker volume rm` — and it carries the
-# database password from the day it was written. After the evaluation sheet's
-# cleanup, a fresh clone generates NEW secrets: mariadb reconciles itself, but
-# this file would still hold the old password and every page would be a 500.
-#
-# Only the password is reconciled. DB_NAME/DB_USER/DB_HOST come from .env,
-# which a fresh clone regenerates identically from .env.example.
 if [ -f /var/www/html/wp-config.php ]; then
     ESC_PW="$(php_escape_pw "$MYSQL_PASSWORD")"
     if ! grep -qF "define( 'DB_PASSWORD', '${ESC_PW}' );" /var/www/html/wp-config.php; then
@@ -155,21 +132,8 @@ if [ -f /var/www/html/wp-config.php ]; then
     fi
 fi
 
-# ── Reconcile the WordPress account passwords with the secret ────────
-# The third place credentials were cached in surviving state, and the one that
-# fails the evaluation sheet most directly: "Sign in with the administrator
-# account to access the Administration dashboard."
-#
-# wp_users lives in the database, which lives on the host under
-# /home/<login>/data — so it outlives `docker volume rm` exactly as
-# wp-config.php and the mariadb datadir do. After a fresh clone regenerates
-# secrets/credentials.txt, WordPress still holds the previous passwords and
-# every login attempt returns login_error.
-#
-# Only rewritten when the current secret does NOT authenticate, so a normal
-# boot does no database writes and the bcrypt hash is left alone.
 if wp core is-installed --allow-root --path=/var/www/html 2>/dev/null; then
-    sync_wp_password() { # $1 = login, $2 = wanted password
+    sync_wp_password() {
         [ -n "$1" ] && [ -n "$2" ] || return 0
         wp eval --allow-root --path=/var/www/html \
             "exit( is_wp_error( wp_authenticate( \$argv[0], \$argv[1] ) ) ? 1 : 0 );" \
@@ -183,12 +147,6 @@ if wp core is-installed --allow-root --path=/var/www/html 2>/dev/null; then
     sync_wp_password "$WP_USER"       "$WP_USER_PASSWORD"
 fi
 
-# ── Object cache (bonus): wire an EXISTING install up to Redis ───────
-# ── Object cache (bonus): wire an EXISTING install up to Redis ───────
-# The wp-config.php heredoc above only runs on a first install, and the site
-# volume outlives image rebuilds — so an install created before Redis existed
-# would never gain these constants. Append them once, idempotently, before the
-# ABSPATH guard: anything after that line is the bootstrap and is read too late.
 if [ -f /var/www/html/wp-config.php ] \
    && ! grep -q 'WP_REDIS_HOST' /var/www/html/wp-config.php; then
     echo "[entrypoint] Adding Redis cache settings to the existing wp-config.php ..."
@@ -212,29 +170,14 @@ if [ -f /var/www/html/wp-config.php ] \
     rm -f "$TMP_CFG"
 fi
 
-# ── Deploy the documentation site (theme, plugin, seeded content) ────
-# Idempotent and deliberately NON-FATAL: site provisioning must never
-# be able to break the service boot path.
 sh /usr/src/inception-site/install.sh \
     || echo "[entrypoint] WARN: site provisioning failed (service boots anyway)" >&2
 
-# ── Object cache (bonus): plugin + drop-in ───────────────────────────
-# NON-FATAL, like the site provisioning above: a cache is an optimisation, and a
-# Redis problem must never be able to stop WordPress from booting.
 enable_redis_cache() {
-    # The site volume persists across boots, so an install interrupted last time
-    # leaves a half-written plugin directory: it exists, so `wp plugin install`
-    # refuses it ("Destination folder already exists") while WordPress never
-    # registers it — the plugin is then neither installable nor active, and the
-    # cache stays off for good. --force overwrites whatever is there, so a fresh
-    # boot and a recovery boot take the same path.
     if ! wp plugin is-active redis-cache --allow-root --path=/var/www/html 2>/dev/null; then
         wp plugin install redis-cache --force --activate \
             --allow-root --path=/var/www/html || return 1
     fi
-    # `wp redis enable` writes wp-content/object-cache.php — the drop-in that
-    # actually routes WordPress's cache calls to Redis. A zero-byte file from an
-    # interrupted enable passes `-f` yet routes nothing, so require it non-empty.
     [ -s /var/www/html/wp-content/object-cache.php ] \
         || wp redis enable --allow-root --path=/var/www/html || return 1
 }
@@ -244,6 +187,5 @@ else
     echo "[entrypoint] WARN: could not enable the Redis object cache (site boots anyway)" >&2
 fi
 
-# ── Start php-fpm as PID 1 ───────────────────────────────────────────
 echo "[entrypoint] Starting php-fpm ..."
 exec php-fpm84 -F

@@ -1,8 +1,4 @@
 <?php
-/**
- * Documentation page — man-page style header, content column,
- * auto-generated table of contents (kit.js) on wide screens.
- */
 get_header();
 
 while ( have_posts() ) :

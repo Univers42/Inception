@@ -1,7 +1,4 @@
 <?php
-/**
- * Journal archive v2 — the full log stream.
- */
 get_header();
 ?>
 

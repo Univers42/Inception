@@ -1,8 +1,6 @@
-/* Inception Kit — copy buttons + docs table of contents. */
 (function () {
 	'use strict';
 
-	/* Copy-to-clipboard on [cmd] blocks */
 	document.addEventListener('click', function (e) {
 		var btn = e.target.closest('.ik-copy');
 		if (!btn) return;
@@ -21,13 +19,12 @@
 			ta.style.left = '-9999px';
 			document.body.appendChild(ta);
 			ta.select();
-			try { document.execCommand('copy'); } catch (err) { /* noop */ }
+			try { document.execCommand('copy'); } catch (err) {  }
 			document.body.removeChild(ta);
 			done();
 		}
 	});
 
-	/* Auto table of contents for docs pages (h2/h3 inside .ik-doc-content) */
 	document.addEventListener('DOMContentLoaded', function () {
 		var article = document.querySelector('.ik-doc-content');
 		var tocHost = document.querySelector('.ik-toc');
@@ -53,7 +50,6 @@
 		});
 		tocHost.appendChild(list);
 
-		/* highlight current section */
 		if ('IntersectionObserver' in window) {
 			var links = tocHost.querySelectorAll('a');
 			var map = {};

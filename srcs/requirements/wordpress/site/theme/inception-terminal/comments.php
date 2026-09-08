@@ -1,16 +1,5 @@
 <?php
-/**
- * Comments list and comment form.
- *
- * The subject's evaluation asks the evaluator to "add a comment using the
- * available WordPress user", so a theme without this file makes that
- * impossible: WordPress renders no comment form unless a template calls
- * comments_template(), however open the discussion settings are.
- *
- * @package inception-terminal
- */
 
-// A password-protected post must not leak its discussion.
 if ( post_password_required() ) {
 	return;
 }

@@ -1,7 +1,4 @@
 <?php
-/**
- * Site footer — tmux-style status bar.
- */
 ?>
 </main>
 

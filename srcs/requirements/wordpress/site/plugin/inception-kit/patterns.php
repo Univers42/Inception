@@ -1,18 +1,9 @@
 <?php
-/**
- * Inception Kit — block-editor integration.
- *
- * Makes the terminal components discoverable inside wp-admin: every
- * shortcode is available as an insertable Block Pattern (inserter →
- * Patterns → "Inception Kit"), so pages can be written entirely from
- * the WordPress interface without memorising any syntax.
- */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/** "Inception Kit" category at the top of the pattern browser. */
 function inception_kit_pattern_category() {
 	if ( function_exists( 'register_block_pattern_category' ) ) {
 		register_block_pattern_category( 'inception', array( 'label' => 'Inception Kit' ) );
@@ -20,7 +11,6 @@ function inception_kit_pattern_category() {
 }
 add_action( 'init', 'inception_kit_pattern_category', 9 );
 
-/** One insertable pattern per component, pre-filled with an example. */
 function inception_kit_register_patterns() {
 	if ( ! function_exists( 'register_block_pattern' ) ) {
 		return;

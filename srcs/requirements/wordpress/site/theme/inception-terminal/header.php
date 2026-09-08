@@ -1,7 +1,4 @@
 <?php
-/**
- * Site header — terminal titlebar with traffic lights, prompt brand and nav.
- */
 ?>
 <!doctype html>
 <html <?php language_attributes(); ?>>

@@ -1,46 +1,31 @@
-/* ══════════════════════════════════════════════════════════════════
-   Inception Terminal v2 — "the page is one shell session"
-   Terminal DNA, executed as a choice: layered blue-slate surfaces
-   (never flat black), two-temperature accents (phosphor green leads,
-   man-page amber co-leads), a serif reading voice for long-form prose
-   (man pages descend from troff typesetting), and structure that
-   encodes real metadata (ls -la index, log-stream journal).
-   WCAG AA verified pairs on #0A0D13: parchment #DCE5F0 ≈ 13.9:1 ·
-   fg #C9D4E3 ≈ 12.6:1 · dim #8395AB ≈ 5.9:1 · phosphor ≈ 11:1 ·
-   amber ≈ 9.6:1 · signal ≈ 9.1:1
-   ══════════════════════════════════════════════════════════════════ */
-
 :root {
 	color-scheme: dark;
 
-	/* palette — named, layered, blue-shifted */
-	--ink-void: #0a0d13;        /* page                */
-	--ink-deep: #070a0f;        /* recessed wells      */
-	--ink-surface: #0e141f;     /* panels              */
-	--ink-panel: #0e141f;       /* (kit compat)        */
-	--ink-panel-2: #121a28;     /* raised chrome       */
-	--ink-bg: #0a0d13;          /* (kit compat)        */
-	--ink-line: #1e2a3c;        /* hairlines           */
-	--ink-border: #1e2a3c;      /* (kit compat)        */
+	--ink-void: #0a0d13;
+	--ink-deep: #070a0f;
+	--ink-surface: #0e141f;
+	--ink-panel: #0e141f;
+	--ink-panel-2: #121a28;
+	--ink-bg: #0a0d13;
+	--ink-line: #1e2a3c;
+	--ink-border: #1e2a3c;
 	--ink-border-hi: #2b3a52;
-	--ink-fg: #c9d4e3;          /* mono text           */
-	--ink-parchment: #dce5f0;   /* serif reading voice */
+	--ink-fg: #c9d4e3;
+	--ink-parchment: #dce5f0;
 	--ink-dim: #8395ab;
 	--ink-faint: #5c6b80;
-	--ink-green: #4ae383;       /* phosphor — commands, states  */
+	--ink-green: #4ae383;
 	--ink-green-dim: rgba(74, 227, 131, 0.4);
 	--ink-green-glow: rgba(74, 227, 131, 0.28);
-	--ink-amber: #ffb454;       /* man-page highlight — co-lead */
-	--ink-cyan: #5ccfe6;        /* links                        */
+	--ink-amber: #ffb454;
+	--ink-cyan: #5ccfe6;
 	--ink-red: #ff6b6b;
 
-	/* shape & rhythm (4px scale) */
 	--ink-radius: 8px;
 	--ink-radius-sm: 4px;
 	--sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
 	--sp-6: 24px; --sp-8: 32px; --sp-12: 48px; --sp-16: 64px;
 
-	/* type */
 	--fs-xs: 0.75rem;
 	--fs-sm: 0.875rem;
 	--fs-base: 1rem;
@@ -53,18 +38,15 @@
 	--font-serif: "Iowan Old Style", "Palatino Linotype", Palatino,
 		Georgia, "Book Antiqua", serif;
 
-	/* motion — one rhythm everywhere */
 	--ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 	--dur-1: 160ms;
 	--dur-2: 260ms;
 
-	/* elevation */
 	--edge-light: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 	--shadow-1: 0 8px 24px rgba(0, 0, 0, 0.35);
 	--shadow-2: 0 18px 44px rgba(0, 0, 0, 0.45);
 }
 
-/* ── Reset & base ────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
@@ -161,7 +143,6 @@ td { font-variant-numeric: tabular-nums; }
 tbody tr { transition: background var(--dur-1) ease-out; }
 tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 
-/* ── Layout shells ───────────────────────────────────────────────── */
 .shell {
 	width: 100%;
 	max-width: 1080px;
@@ -183,7 +164,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 }
 .skip-link:focus { left: 0; }
 
-/* ── Header (terminal titlebar) ──────────────────────────────────── */
 .site-header {
 	position: sticky;
 	top: 0;
@@ -266,7 +246,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .site-nav .current-menu-item > a::before,
 .site-nav .current_page_item > a::before { content: "▸ "; }
 
-/* ══ THE SESSION — signature element ═════════════════════════════ */
 .session {
 	position: relative;
 	padding: var(--sp-12) 0 var(--sp-12);
@@ -277,7 +256,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 	overflow: hidden;
 }
 .session::before {
-	/* faint phosphor grid, dissolving toward the fold */
 	content: "";
 	position: absolute;
 	inset: 0;
@@ -290,7 +268,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 	mask-image: radial-gradient(ellipse 80% 70% at 60% 0%, #000 0%, transparent 72%);
 }
 .session::after {
-	/* pointer-following phosphor spotlight (theme.js sets --mx/--my) */
 	content: "";
 	position: absolute;
 	inset: 0;
@@ -408,11 +385,9 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 	animation: ink-blink 1.1s steps(1) infinite;
 }
 
-/* boot reveal (theme.js) */
 [data-boot] .boot-line { opacity: 0; }
 [data-boot] .boot-line.is-shown { opacity: 1; }
 
-/* ── Section headings ────────────────────────────────────────────── */
 .section-title {
 	font-size: var(--fs-lg);
 	margin: 0 0 var(--sp-6);
@@ -423,7 +398,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 	text-shadow: 0 0 12px var(--ink-green-glow);
 }
 
-/* ── ls -la documentation index ──────────────────────────────────── */
 .home-docs { padding: var(--sp-12) 0 var(--sp-8); }
 .lsla {
 	border-top: 1px solid var(--ink-line);
@@ -471,7 +445,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 }
 .lsla-row:hover .lsla-go { color: var(--ink-amber); transform: translateX(4px); }
 
-/* ── journal.log stream ──────────────────────────────────────────── */
 .home-journal { padding: var(--sp-8) 0 var(--sp-16); }
 .loglist {
 	border-top: 1px solid var(--ink-line);
@@ -507,7 +480,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .logline-follow .log-follow { color: var(--ink-green); font-weight: 600; white-space: nowrap; }
 .logline-rich { padding: var(--sp-4) var(--sp-2); }
 
-/* ── Post meta ───────────────────────────────────────────────────── */
 .post-meta {
 	display: flex;
 	align-items: center;
@@ -521,7 +493,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .post-meta .ik-icon { vertical-align: -0.2em; }
 .meta-sep { color: var(--ink-border-hi); }
 
-/* ── Docs & post pages ───────────────────────────────────────────── */
 .doc-page, .post-single, .archive { padding: var(--sp-8) 0 var(--sp-16); }
 .doc-breadcrumb {
 	color: var(--ink-faint);
@@ -567,7 +538,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .doc-content h2::before { content: "## "; color: var(--ink-green); }
 .doc-content h3::before { content: "### "; color: var(--ink-faint); }
 
-/* the reading voice — man pages descend from typesetting */
 .doc-content p,
 .doc-content li,
 .doc-content figcaption,
@@ -584,7 +554,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .post-content p code,
 .post-content li code { font-size: 0.8em; vertical-align: 0.02em; }
 
-/* post navigation */
 .post-nav {
 	display: flex;
 	justify-content: space-between;
@@ -596,14 +565,12 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 }
 .post-nav-next { margin-left: auto; text-align: right; }
 
-/* archive */
 .archive-head { margin-bottom: var(--sp-8); }
 .archive-sub { color: var(--ink-dim); margin: var(--sp-2) 0 0; }
 .archive-empty { color: var(--ink-dim); }
 .pager { margin-top: var(--sp-8); font-size: var(--fs-sm); }
 .pager .nav-links { display: flex; gap: var(--sp-4); }
 
-/* ── Footer (tmux status bar) ────────────────────────────────────── */
 .site-footer {
 	border-top: 1px solid var(--ink-line);
 	background: var(--ink-deep);
@@ -625,7 +592,6 @@ tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .status-spacer { flex: 1; }
 .status-dim { color: var(--ink-faint); }
 
-/* ── Core Gutenberg blocks (pages written in wp-admin) ───────────── */
 blockquote,
 .wp-block-quote {
 	border-left: 3px solid var(--ink-green);
@@ -678,7 +644,6 @@ figcaption { color: var(--ink-faint); font-size: var(--fs-xs); text-align: cente
 .has-ink-dim-color { color: var(--ink-dim); }
 .has-ink-bg-background-color { background-color: var(--ink-void); }
 
-/* ── Motion ──────────────────────────────────────────────────────── */
 @keyframes ink-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
@@ -694,7 +659,6 @@ figcaption { color: var(--ink-faint); font-size: var(--fs-xs); text-align: cente
 	html { scroll-behavior: auto; }
 }
 
-/* ── Small screens ───────────────────────────────────────────────── */
 @media (max-width: 900px) {
 	.session-rail { display: none; }
 }

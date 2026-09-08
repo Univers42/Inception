@@ -1,8 +1,4 @@
 #!/bin/sh
-# Restore a dump. With no argument it takes the most recent one.
-#
-#   docker exec dbbackup restore.sh                       # newest
-#   docker exec dbbackup restore.sh /backups/<file>.sql.gz # a specific one
 set -eu
 
 : "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}"

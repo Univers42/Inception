@@ -1,24 +1,10 @@
 #!/bin/sh
-# ═════════════════════════════════════════════════════════════════════
-#  Inception — subject v5.2 compliance test suite
-#
-#  Usage:  sh tests/compliance.sh [--deep]
-#
-#  [S] static checks   — repo/config audit, always run
-#  [R] runtime checks  — need the stack up (skipped otherwise)
-#  [D] deep checks     — --deep only: crash-restart & persistence
-#                        (restarts containers, cycles the stack)
-#
-#  Exit code = number of failed checks. No sudo required.
-# ═════════════════════════════════════════════════════════════════════
 set -u
 
 cd "$(dirname "$0")/.." || exit 1
 
 DEEP=0
 NO_CLONE="${NO_CLONE:-0}"
-# Flags in any order, and more than one of them: the old form only looked at $1,
-# so `--no-clone --deep` silently ignored the second.
 for arg in "$@"; do
     case "$arg" in
         --deep)     DEEP=1 ;;
@@ -53,28 +39,13 @@ DOMAIN=$(sed -n 's/^DOMAIN_NAME=//p' srcs/.env 2>/dev/null | head -1)
 COMPOSE_FILE=srcs/docker-compose.yml
 DOCKERFILES="srcs/requirements/nginx/Dockerfile srcs/requirements/wordpress/Dockerfile srcs/requirements/mariadb/Dockerfile"
 ENTRYPOINTS="srcs/requirements/nginx/tools/entrypoint.sh srcs/requirements/wordpress/tools/entrypoint.sh srcs/requirements/mariadb/tools/entrypoint.sh"
-# The three above are the mandatory services, and the rules that say "exactly
-# three" must keep using them. The anti-hack rules are different: they apply to
-# every container the project ships, bonus included, so they scan these instead.
 ALL_DOCKERFILES=$(ls srcs/requirements/*/Dockerfile srcs/requirements/*/*/Dockerfile 2>/dev/null)
 ALL_ENTRYPOINTS=$(ls srcs/requirements/*/tools/*.sh srcs/requirements/*/*/tools/*.sh 2>/dev/null)
-# S18's rule is about the process a container STARTS, so it looks only at
-# entrypoints. ALL_ENTRYPOINTS above stays wider on purpose: the anti-hack
-# scan must read every script that ships, helper scripts included.
 ENTRYPOINT_FILES=$(ls srcs/requirements/*/tools/entrypoint.sh srcs/requirements/*/*/tools/entrypoint.sh 2>/dev/null)
 
 printf "${BLU}══ Inception compliance suite ══${RST}  login=%s domain=%s\n" "$LOGIN" "$DOMAIN"
 
-# ─────────────────────────────────────────────────────────────────────
 section "[P] Preliminary tests (what happens before anything else)"
-# ─────────────────────────────────────────────────────────────────────
-# The sheet opens with four gates, three of which end the evaluation at 0.
-# They apply to the CLONE the evaluator takes, not to this working tree — a
-# tree can be spotless while the pushed repository is stale or leaky, so every
-# check below runs against a fresh clone.
-#
-# Skipped entirely with --no-clone (offline, or when a network round trip is
-# not wanted).
 PRELIM_DIR=""
 cleanup_prelim() { [ -n "$PRELIM_DIR" ] && rm -rf "$PRELIM_DIR"; }
 trap cleanup_prelim EXIT
@@ -82,8 +53,6 @@ trap cleanup_prelim EXIT
 if [ "${NO_CLONE:-0}" = "1" ]; then
     skip "P** --no-clone / NO_CLONE=1 — the preliminary checks need to clone the repository"
 else
-    # The remote may be the ssh form, which only works if that key is on the
-    # account. The evaluator clones over https, so normalise to that.
     ORIGIN_URL=$(git remote get-url origin 2>/dev/null)
     CLONE_URL=$(printf '%s' "$ORIGIN_URL" | sed -E 's#^git@([^:]+):#https://\1/#')
 
@@ -97,9 +66,6 @@ else
         C="$PRELIM_DIR/repo"
         pass "P01 the repository clones cleanly from $CLONE_URL"
 
-        # ── Point 3: is the work actually submitted? ──────────────────────
-        # Committing is not submitting. Anything unpushed simply does not
-        # exist as far as the evaluation is concerned.
         LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
         CLONE_HEAD=$(git -C "$C" rev-parse HEAD 2>/dev/null)
         if [ "$LOCAL_HEAD" = "$CLONE_HEAD" ]; then
@@ -112,14 +78,13 @@ else
         DIRTY=$(git status --porcelain 2>/dev/null | grep -vE '^\?\? (secrets/|srcs/\.env)' | wc -l)
         [ "$DIRTY" -eq 0 ] || warn "P02 $DIRTY uncommitted change(s) in this tree are not in the clone"
 
-        # ── Point 3: right files, right directories, right names ─────────
         ok=1
         for f in Makefile srcs/docker-compose.yml README.md USER_DOC.md DEV_DOC.md; do
             [ -f "$C/$f" ] || { ok=0; fail "P03 the clone is missing $f"; }
         done
         for d in srcs srcs/requirements secrets; do
             case "$d" in
-                secrets) continue ;;   # generated at evaluation time, must NOT be in the repo
+                secrets) continue ;;
             esac
             [ -d "$C/$d" ] || { ok=0; fail "P03 the clone is missing the directory $d/"; }
         done
@@ -129,21 +94,13 @@ else
         done
         [ $ok -eq 1 ] && pass "P03 the clone has the expected files, directories and names"
 
-        # ── Point 1: credentials. A hit here is an instant zero ───────────
         ok=1
-        # (a) no .env may be committed — it is created during the evaluation
         ENVS=$(cd "$C" && git ls-files | grep -E '(^|/)\.env$' || true)
         [ -z "$ENVS" ] || { ok=0; fail "P04 a .env file is committed to the repository" "$ENVS"; }
-        # (b) nothing from secrets/ may be committed
         SEC=$(cd "$C" && git ls-files | grep -E '(^|/)secrets/' || true)
         [ -z "$SEC" ] || { ok=0; fail "P04 files under secrets/ are committed" "$SEC"; }
-        # (c) no key material by extension
         KEYS=$(cd "$C" && git ls-files | grep -E '\.(key|pem|p12|pfx)$' || true)
         [ -z "$KEYS" ] || { ok=0; fail "P04 private key material is committed" "$KEYS"; }
-        # (d) the decisive one: do the REAL current secret values appear
-        #     anywhere in the clone, working tree or history? This cannot be
-        #     evaded the way a pattern match can, and it is exactly what a
-        #     grader would find. Values are never printed — only where.
         HITS=""
         for f in secrets/db_password.txt secrets/db_root_password.txt \
                  secrets/credentials.txt secrets/ftp_password.txt; do
@@ -162,24 +119,11 @@ history:$(basename "$f")"
         [ $ok -eq 1 ] && pass "P04 no .env, no secrets/, no key files and no live credential value in the clone or its history"
     fi
 
-    # ── Point 2: presence at the defence ─────────────────────────────────
-    # Stated so it is accounted for rather than quietly dropped: no script can
-    # check who is in the room.
     skip "P05 'defense can only happen if the student is present' — not machine-verifiable, by nature"
 fi
 
-# ─────────────────────────────────────────────────────────────────────
 section "[S] Structure & Makefile"
-# ─────────────────────────────────────────────────────────────────────
 
-# S01 required layout — the tree the subject shows in its `ls -alR`
-#
-#   .
-#   |-- Makefile
-#   |-- secrets/   credentials.txt, db_password.txt, db_root_password.txt
-#   `-- srcs/      docker-compose.yml, .env, requirements/
-#                  requirements/{nginx,wordpress,mariadb}/
-#                      Dockerfile, .dockerignore, conf/, tools/
 ok=1
 for f in Makefile "$COMPOSE_FILE" srcs/.env \
          secrets/db_password.txt secrets/db_root_password.txt secrets/credentials.txt; do
@@ -188,23 +132,17 @@ done
 for d in secrets srcs srcs/requirements; do
     [ -d "$d" ] || { ok=0; fail "S01 missing directory: $d/"; }
 done
-# .env belongs in srcs/. One at the repo root is the common mistake: compose
-# picks it up from either place, so the stack still works and nothing else here
-# would notice.
 [ -f .env ] && { ok=0; fail "S01 .env must live in srcs/, not at the repository root"; }
 for s in nginx wordpress mariadb; do
     [ -f "srcs/requirements/$s/Dockerfile" ]          || { ok=0; fail "S01 missing Dockerfile for $s"; }
     [ -f "srcs/requirements/$s/tools/entrypoint.sh" ] || { ok=0; fail "S01 missing entrypoint for $s"; }
     [ -d "srcs/requirements/$s/conf" ]                || { ok=0; fail "S01 missing conf/ for $s"; }
     [ -d "srcs/requirements/$s/tools" ]               || { ok=0; fail "S01 missing tools/ for $s"; }
-    # The subject's tree lists a .dockerignore per service. A warning here is a
-    # landmine that everyone learns to scroll past, so it is a verdict.
     [ -f "srcs/requirements/$s/.dockerignore" ] \
         || { ok=0; fail "S01 missing .dockerignore for $s (the subject's tree shows one)"; }
 done
 [ $ok -eq 1 ] && pass "S01 layout matches the subject's tree (Makefile, secrets/, srcs/requirements/<svc>/{Dockerfile,conf,tools})"
 
-# S02 documentation required by subject
 ok=1
 for f in README.md USER_DOC.md DEV_DOC.md; do
     [ -f "$f" ] || { ok=0; fail "S02 missing: $f"; }
@@ -215,31 +153,20 @@ if [ -f README.md ]; then
 fi
 [ $ok -eq 1 ] && pass "S02 README.md + USER_DOC.md + DEV_DOC.md present, README header compliant"
 
-# S25 README.md contains every section the subject mandates
-#
-# S02 only checks the file exists and the first line is right. The subject lists
-# specific sections and four specific comparisons, and a missing one is a
-# grading failure, so each is checked by name.
 ok=1
 if [ -f README.md ]; then
-    # The first line must be italic — one asterisk each side. Bold (**...**) is
-    # a different thing and does not satisfy "italicized".
     FIRST=$(head -1 README.md)
     printf '%s' "$FIRST" | grep -qE '^\*[^*].*\*$' \
         || { ok=0; fail "S25 README first line is not italicised with single asterisks" "$FIRST"; }
     printf '%s' "$FIRST" | grep -qF "$LOGIN" \
         || { ok=0; fail "S25 README first line does not name the login '$LOGIN'" "$FIRST"; }
-    # Required sections, matched as headings so a passing mention in prose does
-    # not count as having the section.
     for sect in "Description" "Instructions" "Resources" "Project description"; do
         grep -qiE "^#{1,4}[[:space:]]+.*${sect}" README.md \
             || { ok=0; fail "S25 README has no '$sect' section"; }
     done
-    # The Resources section must also cover how AI was used.
     grep -qiE '^#{1,4}[[:space:]]+.*(AI|artificial intelligence)' README.md \
         || grep -qiE '\b(AI was used|use of AI|AI usage)\b' README.md \
         || { ok=0; fail "S25 README does not describe how AI was used (required in Resources)"; }
-    # The four mandated comparisons.
     for cmp in "Virtual Machines vs Docker" "Secrets vs Environment Variables" \
                "Docker Network vs Host Network" "Docker Volumes vs Bind Mounts"; do
         grep -qiF "$cmp" README.md \
@@ -248,13 +175,8 @@ if [ -f README.md ]; then
 fi
 [ $ok -eq 1 ] && pass "S25 README has the mandated sections, AI usage and all four comparisons"
 
-# S26 USER_DOC.md and DEV_DOC.md cover the points the subject lists
-#
-# These are topics rather than fixed headings, so each is matched on the
-# vocabulary it cannot plausibly be written without. The intent is to catch a
-# missing SUBJECT, not to grade the prose.
 ok=1
-check_topic() { # file, human name, regex
+check_topic() {
     grep -qiE "$3" "$1" || { ok=0; fail "S26 $1 does not cover: $2"; }
 }
 if [ -f USER_DOC.md ]; then
@@ -273,7 +195,6 @@ if [ -f DEV_DOC.md ]; then
 fi
 [ $ok -eq 1 ] && pass "S26 USER_DOC.md and DEV_DOC.md cover every point the subject lists"
 
-# S03 penultimate stable Alpine
 BASES=$(grep -h '^FROM' $DOCKERFILES | awk '{print $2}' | sort -u)
 NBASE=$(printf '%s\n' "$BASES" | wc -l)
 LATEST=$(curl -fsS --max-time 8 "https://hub.docker.com/v2/repositories/library/alpine/tags?page_size=100&name=3." 2>/dev/null \
@@ -294,11 +215,6 @@ else
     esac
 fi
 
-# S04 latest tag prohibited
-# Two forms, and only the explicit one used to be checked. `FROM alpine` with no
-# tag IS `FROM alpine:latest` — Docker resolves it that way — so an untagged
-# base slips the rule while looking innocent. A digest (@sha256:...) is pinned
-# and therefore fine.
 S04HITS=$(grep -hnE '(^FROM.*:latest|image:.*:latest)' $ALL_DOCKERFILES "$COMPOSE_FILE" 2>/dev/null || true)
 S04IMPLICIT=$(awk '/^FROM[[:space:]]/ {
         ref=$2
@@ -312,12 +228,10 @@ else
     pass "S04 no ':latest' anywhere; every FROM is explicitly tagged"
 fi
 
-# helper: print the compose block of one service (2-space indented key)
 svc_block() {
     awk -v tgt="  $1:" '$0==tgt{f=1;next} f && /^  [a-zA-Z0-9_-]+:[[:space:]]*$/{f=0} f' "$COMPOSE_FILE"
 }
 
-# S05 every service is built locally (no ready-made images pulled)
 ok=1
 for s in nginx wordpress mariadb; do
     svc_block "$s" | grep -q 'build:' || { ok=0; fail "S05 service $s has no build: directive"; }
@@ -326,18 +240,6 @@ FROMS=$(grep -h '^FROM' $DOCKERFILES | awk '{print $2}' | grep -vE '^(alpine|deb
 [ -n "$FROMS" ] && { ok=0; fail "S05 non-Alpine/Debian base image" "$FROMS"; }
 [ $ok -eq 1 ] && pass "S05 all services built from local Dockerfiles, bases restricted to Alpine/Debian"
 
-# S06 prohibited keep-alive hacks
-#
-# The subject's point is that a container is not a VM: PID 1 must BE the daemon,
-# not a babysitter keeping an otherwise-empty container alive.
-#
-# Only unconditionally-infinite constructs are prohibited. A bounded wait such
-# as `until <condition>; do sleep 1; done` — which the wordpress entrypoint uses
-# to wait for MariaDB — is correct and must not be flagged, so `until` and small
-# `sleep` values are deliberately not matched.
-#
-# Comments are stripped first: a file explaining why it avoids these patterns
-# should not fail for merely naming one.
 HACK_RE='tail[[:space:]]+-[fF]'
 HACK_RE="$HACK_RE"'|sleep[[:space:]]+infinity'
 HACK_RE="$HACK_RE"'|sleep[[:space:]]+[0-9]{3,}'
@@ -361,31 +263,19 @@ else
     pass "S06 no keep-alive hacks or supervisors in any service (bonus included)"
 fi
 
-# S07 network rules
 ok=1
 grep -q '^networks:' "$COMPOSE_FILE" || { ok=0; fail "S07 top-level 'networks:' line missing"; }
 grep -qE 'network_mode:[[:space:]]*host' "$COMPOSE_FILE" && { ok=0; fail "S07 network_mode: host is forbidden"; }
 grep -qE '^\s+links:' "$COMPOSE_FILE" && { ok=0; fail "S07 links: is forbidden"; }
-# Every service must actually join a network, not just have one declared at the
-# top of the file. A service that omits `networks:` silently lands on compose's
-# default bridge instead of the project's own.
 SVC_BLOCK=$(awk '/^services:/,/^(volumes|networks):/' "$COMPOSE_FILE")
 SVC_N=$(printf '%s\n' "$SVC_BLOCK" | grep -cE '^  [a-zA-Z0-9_-]+:[[:space:]]*$')
 NET_N=$(printf '%s\n' "$SVC_BLOCK" | grep -cE '^    networks:')
 [ "$SVC_N" = "$NET_N" ] || { ok=0; fail "S07 only $NET_N of $SVC_N services declare 'networks:'"; }
-# The legacy per-container link flag is the older form of the same
-# prohibition and lives outside compose, so the Makefile and srcs are
-# scanned for it too. The pattern is written as a character class so this
-# file does not itself contain the literal an evaluator greps for.
-# Scope: how containers are actually started — the Makefile and srcs/. Not
-# tests/, which necessarily contains the forbidden strings in order to look for
-# them, and would otherwise flag itself.
 LINKHITS=$(grep -rnE '(^|[[:space:]])[-][-]link([[:space:]]|=)|^[[:space:]]*external_links:' \
     Makefile srcs 2>/dev/null | grep -v '^Binary' || true)
 [ -z "$LINKHITS" ] || { ok=0; fail "S07 legacy container-link flag / external_links found" "$LINKHITS"; }
 [ $ok -eq 1 ] && pass "S07 networks: present, all $SVC_N services joined, no host networking, no links"
 
-# S08 restart policy on every service
 N=$(grep -c 'restart:' "$COMPOSE_FILE")
 if [ "$N" -ge 3 ]; then
     pass "S08 restart policy declared on all $N services ($(grep 'restart:' "$COMPOSE_FILE" | awk '{print $2}' | sort -u | tr '\n' ' '))"
@@ -393,16 +283,12 @@ else
     fail "S08 restart policy missing on some services (found $N, need one per service)"
 fi
 
-# S09 image name == service name
 ok=1
 for s in nginx wordpress mariadb; do
     svc_block "$s" | grep -q "image: *$s:" || { ok=0; fail "S09 image name for service '$s' must be '$s:<tag>'"; }
 done
 [ $ok -eq 1 ] && pass "S09 each image is named after its service (nginx, wordpress, mariadb)"
 
-# S10 only nginx publishes ports among the mandatory services, and only 443
-# (bonus services are explicitly allowed their own ports by the subject —
-# scoped to nginx's own block so a bonus port never trips this check)
 ok=1
 for s in wordpress mariadb; do
     svc_block "$s" | grep -q '^\s*ports:' && { ok=0; fail "S10 mandatory service '$s' must not publish ports"; }
@@ -414,7 +300,6 @@ else
     ok=0; fail "S10 nginx must publish exactly 443:443" "found: $NGINX_PORTS"
 fi
 
-# S11 two named volumes rooted in /home/<login>/data, no service-level bind mounts
 ok=1
 for v in db_data wp_data; do
     awk "/^volumes:/,/^networks:/" "$COMPOSE_FILE" | grep -q "  $v:" || { ok=0; fail "S11 named volume '$v' missing"; }
@@ -431,7 +316,6 @@ if grep -E '^\s+- (/|\.|~)[^ ]*:' "$COMPOSE_FILE" | grep -vq 'device:'; then
 fi
 [ $ok -eq 1 ] && pass "S11 named volumes (db_data, wp_data and any bonus volume) all under /home/$LOGIN/data, no service bind mounts"
 
-# S12 secrets configured, git-ignored, never tracked
 ok=1
 grep -q '^secrets:' "$COMPOSE_FILE" || { ok=0; fail "S12 no top-level secrets: in compose"; }
 for pat in secrets srcs/.env; do
@@ -443,11 +327,6 @@ TRACKED=$(git ls-files | grep -E '(^|/)secrets/|srcs/\.env$|\.(key|crt|pem)$' ||
 grep -q 'ca_key' "$COMPOSE_FILE" && { ok=0; fail "S12 CA private key must never be mounted into a container"; }
 [ $ok -eq 1 ] && pass "S12 Docker secrets configured; secrets/ and srcs/.env ignored and untracked; CA key stays on host"
 
-# S13 no credentials in Dockerfiles
-# The subject bans passwords, and the failure clause covers "any credentials,
-# API keys, or passwords", so look for all three — and in every Dockerfile the
-# project ships, bonus included. ARG counts too: build args end up in the image
-# history and are readable with `docker history`.
 S13RE='(pass(wd|word)?|secret|api[_-]?key|token|credential)[[:space:]]*='
 S13RE="$S13RE"'|^[[:space:]]*(ENV|ARG)[[:space:]]+[A-Z_]*(PASS|SECRET|TOKEN|KEY|CRED)'
 S13HITS=$(grep -hinE "$S13RE" $ALL_DOCKERFILES 2>/dev/null \
@@ -458,7 +337,6 @@ else
     pass "S13 no passwords, API keys or tokens in any Dockerfile"
 fi
 
-# S14 no plaintext credentials in tracked files
 LEAKS=$(git ls-files -z | xargs -0 grep -inE "(password|passwd|secret|api_key|token)[[:space:]]*[:=][[:space:]]*['\"]?[A-Za-z0-9@#%!]{4,}" 2>/dev/null \
         | grep -viE '\$|\{\{|/run/secrets|secrets/|password\.txt|openssl rand|sql_escape|MYSQL_PWD|_FILE|example|placeholder|YourDb|WpAdmin|WpEditor' || true)
 if [ -n "$LEAKS" ]; then
@@ -467,7 +345,6 @@ else
     pass "S14 no plaintext credentials in tracked files"
 fi
 
-# S15 no credentials anywhere in git history (subject: instant project failure)
 HLEAKS=$(git log --all -p -- . 2>/dev/null \
          | grep -iE '^\+.*(password|passwd|secret)[[:space:]]*[:=][[:space:]]*['\''"]?[A-Za-z0-9@#%!]{4,}' \
          | grep -viE '\$|\{|/run/secrets|secrets/|password\.txt|openssl rand|sql_escape|MYSQL_PWD|_FILE|example|placeholder|YourDb|WpAdmin|WpEditor|IDENTIFIED BY' \
@@ -478,29 +355,16 @@ else
     pass "S15 git history clean of credential-like content"
 fi
 
-# S24 the actual live secret values appear nowhere they could be published
-#
-# S14 and S15 pattern-match for things that LOOK like credentials, which is
-# guesswork in both directions: it misses a password that happens not to match,
-# and it fires on harmless lines. This takes the real values out of secrets/ and
-# srcs/.env and searches for those exact strings — no false positives, and no
-# way for a genuinely published credential to slip through.
-#
-# Four places a value could end up published: tracked files, git history, image
-# layers (build args survive in `docker history`), and container environment.
 ok=1
 SECRET_VALUES=""
 for f in secrets/db_password.txt secrets/db_root_password.txt secrets/credentials.txt \
          secrets/ftp_password.txt; do
     [ -f "$f" ] || continue
     while IFS= read -r line; do
-        # Skip anything too short to be a real secret; matching those would
-        # produce noise, not findings.
         [ ${#line} -ge 8 ] && SECRET_VALUES="$SECRET_VALUES
 $line"
     done < "$f"
 done
-# Passwords set in .env count too, if any are kept there.
 if [ -f srcs/.env ]; then
     while IFS= read -r line; do
         case "$line" in
@@ -516,9 +380,6 @@ if [ -z "$(printf '%s' "$SECRET_VALUES" | tr -d '[:space:]')" ]; then
     warn "S24 no secret values found to check (run make setup first)"
 else
     printf '%s\n' "$SECRET_VALUES" | grep -v '^$' | while IFS= read -r v; do
-        # HEAD is what is published; the working tree is what is about to be.
-        # A secret pasted into a tracked file and not yet committed must be
-        # caught now, not after it is pushed.
         git grep -qF -- "$v" HEAD 2>/dev/null && echo "COMMITTED:$v"
         git ls-files -z 2>/dev/null | xargs -0 grep -lF -- "$v" 2>/dev/null | grep -q . \
             && echo "WORKTREE:$v"
@@ -526,13 +387,8 @@ else
     done > /tmp/.s24hits 2>/dev/null
     HITS=$(cat /tmp/.s24hits 2>/dev/null | sed 's/\(:.\{0,3\}\).*/\1.../'); rm -f /tmp/.s24hits
     if [ -n "$HITS" ]; then
-        # Never print the value itself — a test that leaks the secret into a log
-        # or a screenshot has become the thing it was written to prevent.
         ok=0; fail "S24 a live secret value is published" "$HITS"
     fi
-    # S24 runs in the static section, before RUNNING is set, so decide for
-    # itself whether there is a live stack to inspect rather than reading a
-    # variable that does not exist yet.
     if docker ps --format '{{.Names}}' 2>/dev/null | grep -q .; then
         printf '%s\n' "$SECRET_VALUES" | grep -v '^$' | while IFS= read -r v; do
             for c in nginx wordpress mariadb; do
@@ -549,13 +405,11 @@ else
     [ $ok -eq 1 ] && pass "S24 no live secret value appears in tracked files, git history, image layers or container env"
 fi
 
-# S16 mandatory env usage
 ok=1
 grep -q "^DOMAIN_NAME=$DOMAIN" srcs/.env || { ok=0; fail "S16 srcs/.env must define DOMAIN_NAME=$DOMAIN"; }
 grep -q '\${DOMAIN_NAME}' "$COMPOSE_FILE" || { ok=0; fail "S16 compose must consume env vars (\${DOMAIN_NAME})"; }
 [ $ok -eq 1 ] && pass "S16 .env file present and consumed through compose interpolation"
 
-# S17 admin username rule
 WPADMIN=$(sed -n 's/^WP_ADMIN_USER=//p' srcs/.env | head -1)
 case "$(printf %s "$WPADMIN" | tr '[:upper:]' '[:lower:]')" in
     *admin*) fail "S17 WP_ADMIN_USER '$WPADMIN' contains 'admin' (forbidden)" ;;
@@ -563,12 +417,8 @@ case "$(printf %s "$WPADMIN" | tr '[:upper:]' '[:lower:]')" in
     *)       pass "S17 WP admin username '$WPADMIN' complies with the naming rule" ;;
 esac
 
-# S18 entrypoints hand PID 1 to the daemon via exec
 ok=1
 for e in $ENTRYPOINT_FILES; do
-    # Join backslash continuations before taking the last line. `exec daemon \`
-    # spread over several lines for readability is still an exec, and judging
-    # the last PHYSICAL line would fail it for its own final flag.
     LAST=$(grep -vE '^\s*(#|$)' "$e" \
         | sed -e ':a' -e '/\\$/{N;s/\\\n[[:space:]]*/ /;ba}' \
         | tail -1)
@@ -579,24 +429,12 @@ for e in $ENTRYPOINT_FILES; do
 done
 [ $ok -eq 1 ] && pass "S18 every entrypoint ends with exec — daemon runs as PID 1"
 
-# S19 Makefile drives docker compose with the srcs compose file
 if grep -q 'docker compose -f srcs/docker-compose.yml' Makefile; then
     pass "S19 Makefile builds/starts the stack through srcs/docker-compose.yml"
 else
     fail "S19 Makefile must call docker compose with srcs/docker-compose.yml"
 fi
 
-# S20 the domain is <login>.42.fr and points at a local address
-#
-# Three separate things, and the old version only looked at the last one — with
-# a grep of /etc/hosts, and only a warning if it failed:
-#   a) the NAME. DOMAIN comes from srcs/.env, so nothing stopped it being
-#      "foo.com": the check would then cheerfully confirm foo.com resolves.
-#      The subject requires exactly <login>.42.fr.
-#   b) it must actually RESOLVE. A line can sit in /etc/hosts and still not
-#      resolve (malformed entry, nsswitch not consulting files), so ask the
-#      resolver rather than reading the file.
-#   c) it must point at a LOCAL address.
 ok=1
 EXPECT_DOMAIN="${LOGIN}.42.fr"
 if [ "$DOMAIN" != "$EXPECT_DOMAIN" ]; then
@@ -613,7 +451,6 @@ else
 fi
 [ $ok -eq 1 ] && pass "S20 $DOMAIN is <login>.42.fr and resolves to $RESOLVED"
 
-# S21 TLS material issued on host
 ok=1
 [ -f secrets/ca.crt ]     || { ok=0; warn "S21 secrets/ca.crt missing (run make setup)"; }
 [ -f secrets/server.crt ] || { ok=0; warn "S21 secrets/server.crt missing (run make setup)"; }
@@ -625,11 +462,6 @@ if [ $ok -eq 1 ]; then
     fi
 fi
 
-# S22 nginx pins TLSv1.2/1.3 in its configuration
-# The runtime probe (R03) can only report what a client is able to offer, and a
-# modern OpenSSL refuses to speak TLSv1.0/1.1 at all. This check reads the
-# config directly, so a regression is caught even where the handshake cannot be
-# attempted.
 NGINX_CONF=$(ls srcs/requirements/nginx/conf/*.conf 2>/dev/null | head -1)
 if [ -z "$NGINX_CONF" ]; then
     fail "S22 no nginx .conf found under srcs/requirements/nginx/conf/"
@@ -649,16 +481,6 @@ else
     fi
 fi
 
-# S23 the container's start command is not a shell or a loop
-#
-# The subject names `bash` itself as a prohibited hacky patch: a container whose
-# command is a bare shell stays alive doing nothing, which is exactly the
-# "container as a VM" pattern it warns against.
-#
-# ONLY column-0 CMD/ENTRYPOINT instructions are the container's command. The
-# indented `CMD` inside a HEALTHCHECK is a different thing entirely — mariadb's
-# healthcheck legitimately runs `sh -c '... mariadb-admin ping ...'` and must not
-# be mistaken for a shell entrypoint.
 ok=1
 for f in $ALL_DOCKERFILES; do
     [ -f "$f" ] || continue
@@ -672,7 +494,6 @@ for f in $ALL_DOCKERFILES; do
         ok=0; fail "S23 $f start command contains a keep-alive hack" "$STARTCMD"
     fi
 done
-# compose can override the image's command; the same rules apply there.
 OVERRIDE=$(grep -nE '^[[:space:]]+(command|entrypoint):' "$COMPOSE_FILE" || true)
 if [ -n "$OVERRIDE" ]; then
     if printf '%s' "$OVERRIDE" | grep -qE '(bash|/bin/sh|[^a-z]sh)[[:space:]]*$' \
@@ -682,9 +503,7 @@ if [ -n "$OVERRIDE" ]; then
 fi
 [ $ok -eq 1 ] && pass "S23 no service starts a bare shell or a keep-alive loop as its command"
 
-# ─────────────────────────────────────────────────────────────────────
 section "[R] Runtime"
-# ─────────────────────────────────────────────────────────────────────
 
 RUNNING=1
 for c in nginx wordpress mariadb; do
@@ -694,7 +513,6 @@ done
 if [ $RUNNING -eq 0 ]; then
     skip "R** stack not running — start it with 'make up' to run runtime checks"
 else
-    # R01 all containers healthy (wait for pending healthchecks)
     ok=1
     for c in nginx wordpress mariadb; do
         i=0
@@ -712,7 +530,6 @@ else
     done
     [ $ok -eq 1 ] && pass "R01 nginx, wordpress and mariadb all running and healthy"
 
-    # R02 only 443 published
     PUB=$(docker ps --format '{{.Names}} {{.Ports}}' | grep -E '^(nginx|wordpress|mariadb) ' | grep -oE '0\.0\.0\.0:[0-9]+|\[::\]:[0-9]+' | grep -oE '[0-9]+$' | sort -u)
     if [ "$PUB" = "443" ]; then
         pass "R02 port 443 is the only published port"
@@ -720,18 +537,6 @@ else
         fail "R02 published ports must be exactly {443}" "found: $(printf '%s' "$PUB" | tr '\n' ' ')"
     fi
 
-    # R03 TLS protocol enforcement
-    #
-    # The obvious form of this test — "the handshake did not succeed, therefore
-    # the server rejected it" — does not work. Debian's OpenSSL sets
-    # MinProtocol=TLSv1.2, so the client refuses to even offer TLSv1.0/1.1 and
-    # fails locally with "no protocols available". That is indistinguishable
-    # from a server refusal, and the check passed against a closed port.
-    #
-    # So: lift the client's floor with a throwaway OPENSSL_CONF, then classify
-    # the outcome in three ways instead of two. A refusal only counts when the
-    # SERVER said no — an alert, which reaches us as "tlsv1 alert protocol
-    # version" / "wrong version number".
     ok=1
     R03_CONF=$(mktemp)
     cat > "$R03_CONF" <<'R03EOF'
@@ -749,7 +554,7 @@ R03EOF
         if printf '%s' "$OUT" | grep -qE 'Cipher is [A-Z]'; then
             ok=0; fail "R03 $v handshake unexpectedly succeeded — server accepts obsolete TLS"
         elif printf '%s' "$OUT" | grep -qiE 'alert protocol version|wrong version number|unsupported protocol'; then
-            : # the server rejected it, which is what the subject requires
+            :
         elif printf '%s' "$OUT" | grep -qi 'no protocols available'; then
             ok=0
             warn "R03 $v could not be offered by this client — result inconclusive, see S22"
@@ -765,7 +570,6 @@ R03EOF
     done
     [ $ok -eq 1 ] && pass "R03 TLSv1.2/1.3 accepted; TLSv1.0/1.1 refused by the server (alert)"
 
-    # R04 certificate identity
     CERT=$(echo | openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" 2>/dev/null | openssl x509 -noout -subject -issuer 2>/dev/null)
     if printf '%s' "$CERT" | grep -q "CN *= *$DOMAIN" && printf '%s' "$CERT" | grep -q "Inception Local CA"; then
         pass "R04 served certificate is CN=$DOMAIN signed by the local CA"
@@ -773,7 +577,6 @@ R03EOF
         fail "R04 unexpected certificate" "$CERT"
     fi
 
-    # R05 WordPress is served
     BODY=$(curl -ks --max-time 10 "https://$DOMAIN/")
     SIZE=${#BODY}
     if [ "$SIZE" -gt 10000 ] && printf '%s' "$BODY" | grep -q 'wp-\(content\|includes\)'; then
@@ -782,7 +585,6 @@ R03EOF
         fail "R05 front page missing or empty ($SIZE bytes)"
     fi
 
-    # R06 admin panel reachable
     CODE=$(curl -ks -o /dev/null -w '%{http_code}' --max-time 10 "https://$DOMAIN/wp-login.php")
     if [ "$CODE" = "200" ]; then
         pass "R06 admin login page reachable (wp-login.php → 200)"
@@ -790,32 +592,21 @@ R03EOF
         fail "R06 wp-login.php returned $CODE"
     fi
 
-    # R07 no plain-HTTP entrypoint on port 80
-    #
-    # "Answered on 80" and "this project opened 80" are different claims, and
-    # only the second is a compliance failure. Anything else on the machine
-    # holding 80 is outside the infrastructure — but an evaluator sitting at
-    # this VM still sees it, so it must be reported, not silently passed.
     R07CONT=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -E ':80->' || true)
     R07ANSWERS=0
     curl -s -o /dev/null --max-time 3 "http://$DOMAIN/" 2>/dev/null && R07ANSWERS=1
     if [ -n "$R07CONT" ]; then
         fail "R07 a container of this project publishes port 80" "$R07CONT"
     elif [ "$R07ANSWERS" = "1" ]; then
-        # ss only reveals the owning process to root; $NF would otherwise print
-        # the peer-address column, which reads as a nonsense process name.
         OWNER=$(ss -ltnp 2>/dev/null | grep ':80 ' | grep -oE 'users:\(\("[^"]+"' | head -1 | sed 's/.*"\(.*\)"/\1/')
         warn "R07 something outside this project answers on port 80 ${OWNER:+($OWNER)} — no Inception container publishes it, but an evaluator will see it"
     else
         pass "R07 port 80 closed; nginx:443 is the only entrypoint"
     fi
 
-    # R08 WordPress users: two users, one compliant administrator
     ULIST=$(docker exec wordpress wp --allow-root --path=/var/www/html user list --fields=user_login,roles --format=csv 2>/dev/null | tail -n +2)
     NUSERS=$(printf '%s\n' "$ULIST" | grep -c .)
     NADMIN=$(printf '%s\n' "$ULIST" | grep -c ',administrator')
-    # Flatten to one line: with two administrators this holds a newline, which
-    # cut the failure message off mid-name precisely when it was needed.
     ADMIN_LOGIN=$(printf '%s\n' "$ULIST" | grep ',administrator' | cut -d, -f1 | paste -sd, -)
     ok=1
     [ "$NUSERS" -eq 2 ] || { ok=0; fail "R08 expected 2 WordPress users, found $NUSERS"; }
@@ -825,19 +616,6 @@ R03EOF
     esac
     [ $ok -eq 1 ] && pass "R08 two WP users; administrator '$ADMIN_LOGIN' complies with naming rule"
 
-    # R20 the same rule, read straight out of the database
-    #
-    # The subject says "in your WordPress database". R08 asks wp-cli, which is
-    # convenient but is still WordPress reporting on itself. This asks MariaDB
-    # directly, so a wp-cli misconfiguration — or a user created only through
-    # the application layer — cannot hide the real state of the data.
-    #
-    # The role lives in wp_usermeta.wp_capabilities as a serialised PHP array,
-    # e.g. a:1:{s:13:"administrator";b:1;}, so the administrator is found by
-    # matching that string rather than by any column in wp_users.
-    # SQL goes in on stdin, not through -e: the capabilities value contains
-    # double quotes, and passing those through docker exec + sh -c + -e
-    # mangles them into a query that silently matches nothing.
     DBQ() {
         printf '%s\n' "$1" | docker exec -i mariadb \
             sh -c 'exec mariadb -u root -p"$(cat /run/secrets/db_root_password)" -N -B "$0"' "$WPDB" 2>/dev/null
@@ -849,9 +627,6 @@ R03EOF
     else
         ok=1
         DBUSERS=$(DBQ "SELECT COUNT(*) FROM ${PFX}users;")
-        # wp_capabilities is a serialised PHP array; 'administrator' appears in it
-        # only for an administrator, so a plain LIKE is enough and avoids having to
-        # quote the embedded double quotes through three layers of shell.
         DBADMINS=$(DBQ "SELECT u.user_login FROM ${PFX}users u JOIN ${PFX}usermeta m ON m.user_id=u.ID WHERE m.meta_key='${PFX}capabilities' AND m.meta_value LIKE '%administrator%';")
         NDBADM=$(printf '%s\n' "$DBADMINS" | grep -c .)
         DBADMINS=$(printf '%s\n' "$DBADMINS" | paste -sd, - )
@@ -860,8 +635,6 @@ R03EOF
         case "$(printf %s "$DBADMINS" | tr '[:upper:]' '[:lower:]')" in
             *admin*|"") ok=0; fail "R20 administrator user_login '$DBADMINS' contains 'admin'" ;;
         esac
-        # The rule is about the username, but a display name of "Admin" is the
-        # first thing a defence will notice, so say something without failing.
         OTHER=$(DBQ "SELECT CONCAT(user_nicename,' ',display_name) FROM ${PFX}users WHERE user_login='${DBADMINS}';")
         case "$(printf %s "$OTHER" | tr '[:upper:]' '[:lower:]')" in
             *admin*) warn "R20 administrator's nicename/display name contains 'admin' ($OTHER) — the rule targets the username, but expect the question" ;;
@@ -869,17 +642,14 @@ R03EOF
         [ $ok -eq 1 ] && pass "R20 database itself holds 2 users, 1 administrator ('$DBADMINS'), name complies"
     fi
 
-    # R09 an active theme exists (blank-site regression check)
     if docker exec wordpress wp --allow-root --path=/var/www/html theme list --status=active --field=name 2>/dev/null | grep -q .; then
         pass "R09 an active WordPress theme is installed"
     else
         fail "R09 no active theme — the site would render a blank page"
     fi
 
-    # R10 real daemons run as PID 1
     ok=1
     R10_PAIRS='nginx:nginx wordpress:php-fpm84 mariadb:mariadbd'
-    # A bonus container is still a container: PID 1 must be its daemon too.
     docker ps --format '{{.Names}}' 2>/dev/null | grep -qx staticsite \
         && R10_PAIRS="$R10_PAIRS staticsite:nginx"
     for pair in $R10_PAIRS; do
@@ -887,14 +657,9 @@ R03EOF
         P1=$(docker exec "$c" ps -o pid,comm 2>/dev/null | awk '$1==1{print $2}')
         [ "$P1" = "$d" ] || { ok=0; fail "R10 $c PID 1 is '$P1' (expected $d)"; }
     done
-    # Name what was actually inspected, so the line cannot claim coverage it
-    # does not have when a container is missing or a bonus one is added.
     R10_SEEN=$(printf '%s' "$R10_PAIRS" | tr ' ' '\n' | sed 's/:/ as PID1=/' | tr '\n' ',' | sed 's/,$//;s/,/, /g')
     [ $ok -eq 1 ] && pass "R10 PID 1 is the service daemon in every container ($R10_SEEN)"
 
-    # R19 what Docker actually launched, and how it is networked
-    # Static rules can be satisfied while the running container tells a
-    # different story, so read it back from the daemon.
     ok=1
     R19_LIST='nginx wordpress mariadb'
     docker ps --format '{{.Names}}' 2>/dev/null | grep -qx staticsite && R19_LIST="$R19_LIST staticsite"
@@ -915,20 +680,10 @@ R03EOF
     done
     [ $ok -eq 1 ] && pass "R19 every container starts a real daemon, no links, on a project network"
 
-    # R21 the TLS policy nginx is actually running
-    #
-    # S22 reads the project's own conf file. That is not the whole config: the
-    # base image ships /etc/nginx/nginx.conf, and Alpine's declares
-    # "ssl_protocols TLSv1.1 TLSv1.2 TLSv1.3" at http level. The server block
-    # overrides it — which is why the handshake test passes — but a defence
-    # running `nginx -T | grep ssl_protocols` sees TLSv1.1 and will ask about
-    # it. `nginx -T` is the authoritative, fully-resolved config, so read that.
     SSL_LINES=$(docker exec nginx nginx -T 2>/dev/null | grep -E '^[[:space:]]*ssl_protocols' | sed 's/^[[:space:]]*//;s/;[[:space:]]*$//')
     if [ -z "$SSL_LINES" ]; then
         fail "R21 no ssl_protocols anywhere in nginx's effective config"
     else
-        # The directive that applies to the TLS server is the one inside its
-        # server block, i.e. the last one nginx resolves for that context.
         SRV_POLICY=$(docker exec nginx nginx -T 2>/dev/null \
             | awk '/^[[:space:]]*server[[:space:]]*\{/{inserver=1} inserver && /ssl_protocols/{sub(/^[[:space:]]*/,"");sub(/;[[:space:]]*$/,"");print;exit}')
         case "$SRV_POLICY" in
@@ -941,20 +696,16 @@ R03EOF
             "") fail "R21 could not read the server block's ssl_protocols" ;;
             *)  fail "R21 server block policy is not TLSv1.2/1.3" "$SRV_POLICY" ;;
         esac
-        # Inherited defaults do not change behaviour here, but they are the
-        # first thing a grep of the running config turns up.
         STALE=$(printf '%s\n' "$SSL_LINES" | grep -E 'SSLv|TLSv1(\.[01])?([^.0-9]|$)' || true)
         [ -n "$STALE" ] && warn "R21 an inherited ssl_protocols still lists an obsolete protocol (overridden by the server block, but visible to \`nginx -T\`): $STALE"
     fi
 
-    # R11 one service per container
     ok=1
     docker exec wordpress sh -c 'command -v nginx' >/dev/null 2>&1 && { ok=0; fail "R11 nginx binary present in wordpress container"; }
     docker exec mariadb  sh -c 'command -v nginx' >/dev/null 2>&1 && { ok=0; fail "R11 nginx binary present in mariadb container"; }
     docker exec nginx    sh -c 'command -v php-fpm84 || command -v mariadbd' >/dev/null 2>&1 && { ok=0; fail "R11 app daemons present in nginx container"; }
     [ $ok -eq 1 ] && pass "R11 strict service isolation (wordpress & mariadb ship no nginx, nginx ships no app daemons)"
 
-    # R12 dedicated bridge network connects the three containers
     NETOK=1
     docker network inspect inception >/dev/null 2>&1 || NETOK=0
     if [ $NETOK -eq 1 ]; then
@@ -974,7 +725,6 @@ R03EOF
         fail "R12 docker network misconfigured"
     fi
 
-    # R13 named volumes bound to /home/<login>/data
     ok=1
     for pair in "inception_db_data:/home/$LOGIN/data/mariadb" "inception_wp_data:/home/$LOGIN/data/wordpress"; do
         v=${pair%%:*}; d=${pair#*:}
@@ -982,12 +732,10 @@ R03EOF
         [ "$DEV" = "$d" ] || { ok=0; fail "R13 volume $v device is '$DEV' (expected $d)"; }
     done
     [ -f "/home/$LOGIN/data/wordpress/wp-config.php" ] || { ok=0; fail "R13 WordPress files not visible in /home/$LOGIN/data/wordpress"; }
-    # the mariadb datadir is mode 750 (mysql-owned) — verify through the volume mount
     [ -d "/home/$LOGIN/data/mariadb" ] || { ok=0; fail "R13 /home/$LOGIN/data/mariadb missing on host"; }
     docker exec mariadb test -d /var/lib/mysql/mysql || { ok=0; fail "R13 MariaDB datadir empty in db_data volume"; }
     [ $ok -eq 1 ] && pass "R13 named volumes persist site + DB under /home/$LOGIN/data"
 
-    # R14 secrets mounted; no password-like env vars leaked
     ok=1
     docker exec mariadb   test -f /run/secrets/db_root_password || { ok=0; fail "R14 db_root_password secret missing in mariadb"; }
     docker exec wordpress test -f /run/secrets/credentials      || { ok=0; fail "R14 credentials secret missing in wordpress"; }
@@ -996,7 +744,6 @@ R03EOF
     [ -n "$ENVLEAK" ] && { ok=0; fail "R14 password-like environment variable exposed" "$ENVLEAK"; }
     [ $ok -eq 1 ] && pass "R14 credentials delivered via Docker secrets only — none in container env"
 
-    # R15 restart policy active on all containers
     POL=$(docker inspect nginx wordpress mariadb --format '{{.HostConfig.RestartPolicy.Name}}' | sort -u)
     if [ "$POL" = "unless-stopped" ] || [ "$POL" = "on-failure" ] || [ "$POL" = "always" ]; then
         pass "R15 restart policy '$POL' active on all containers"
@@ -1004,7 +751,6 @@ R03EOF
         fail "R15 inconsistent/missing restart policy" "$POL"
     fi
 
-    # R16 database really holds the WordPress schema
     NT=$(docker exec mariadb sh -c 'MYSQL_PWD="$(cat /run/secrets/db_password)" mariadb -u "$MYSQL_USER" "$MYSQL_DATABASE" -N -e "SHOW TABLES LIKE \"wp_%\";"' 2>/dev/null | wc -l)
     if [ "$NT" -ge 10 ]; then
         pass "R16 WordPress schema present in MariaDB ($NT wp_* tables)"
@@ -1012,7 +758,6 @@ R03EOF
         fail "R16 WordPress tables missing (found $NT)"
     fi
 
-    # R17 images built locally, not pulled (our COPY entrypoint layer is present)
     ok=1
     for img in nginx:inception wordpress:inception mariadb:inception; do
         docker image history --no-trunc "$img" 2>/dev/null | grep -q 'entrypoint.sh' \
@@ -1020,21 +765,12 @@ R03EOF
     done
     [ $ok -eq 1 ] && pass "R17 all three images are local builds of this repository"
 
-    # R18 inter-service reachability on the bridge network
     ok=1
     docker exec wordpress nc -z mariadb 3306   2>/dev/null || { ok=0; fail "R18 wordpress cannot reach mariadb:3306"; }
     docker exec nginx     nc -z wordpress 9000 2>/dev/null || { ok=0; fail "R18 nginx cannot reach wordpress:9000"; }
     [ $ok -eq 1 ] && pass "R18 service-name DNS + reachability across the docker network"
 
-    # R22 the services are CONFIGURED for that wiring, not merely able to reach it
-    #
-    # R18 proves a socket answers on wordpress:9000 and mariadb:3306. It does not
-    # prove nginx routes PHP there, or that WordPress talks to that database —
-    # nginx could be serving from somewhere else entirely and R18 would still be
-    # green. Read the configuration each service is actually running.
     ok=1
-    # Either the literal upstream or the variable form used to force runtime
-    # DNS re-resolution; both must point at wordpress:9000.
     docker exec nginx nginx -T 2>/dev/null \
         | grep -qE 'fastcgi_pass[[:space:]]+(wordpress:9000|\$upstream_wordpress)' \
         || { ok=0; fail "R22 nginx does not fastcgi_pass to wordpress:9000"; }
@@ -1045,17 +781,10 @@ R03EOF
         || { ok=0; fail "R22 wp-config.php does not point DB_HOST at mariadb"; }
     docker exec wordpress sh -c "grep -rhE '^listen[[:space:]]*=' /etc/php*/php-fpm.d/*.conf 2>/dev/null" \
         | grep -q '9000' || { ok=0; fail "R22 php-fpm does not listen on 9000"; }
-    # The application ports must stay inside the network: only 443 is published,
-    # which R02 checks, but assert the sockets themselves are container-local.
     docker exec mariadb sh -c 'nc -z 127.0.0.1 3306' 2>/dev/null \
         || { ok=0; fail "R22 mariadb is not listening on 3306 inside its container"; }
     [ $ok -eq 1 ] && pass "R22 www→nginx:443, nginx→wordpress:9000, wordpress→mariadb:3306 as configured"
 
-    # R23 volume topology: each container has the volume it should, and no other
-    #
-    # A container mounting a volume it has no business with is invisible to
-    # every other check here: the stack works, ports are right, and the data
-    # still ends up somewhere it should not be.
     ok=1
     vols_of() { docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}:{{.Destination}} {{end}}{{end}}' "$1" 2>/dev/null; }
     MDB_V=$(vols_of mariadb); WP_V=$(vols_of wordpress); NGX_V=$(vols_of nginx)
@@ -1069,21 +798,10 @@ R03EOF
         && { ok=0; fail "R23 wordpress must not mount the database volume" "$WP_V"; }
     printf '%s' "$NGX_V" | grep -q 'db_data' \
         && { ok=0; fail "R23 nginx must not mount the database volume" "$NGX_V"; }
-    # nginx serving the site's static files from the same volume is correct and
-    # expected: it is the web server for those files, PHP is handled over
-    # fastcgi. Only note its absence, which would mean assets are served from a
-    # copy that can drift.
     printf '%s' "$NGX_V" | grep -q 'wp_data:/var/www/html' \
         || warn "R23 nginx does not share the site volume — static assets may be served from a stale copy"
     [ $ok -eq 1 ] && pass "R23 db volume only in mariadb; site volume in wordpress (and nginx for static files)"
 
-    # R24 the shell inside every container answers, and it is the same one
-    #
-    # Every entrypoint, every healthcheck's `sh -c` and every `docker exec ...
-    # sh` in this file run under the image's /bin/sh. The images take the shell
-    # the host was built with (srcs/shell/, see the Dockerfiles), so what it is
-    # depends on the host; that it works, and that all containers agree, does
-    # not.
     ok=1; SHELLS=""
     for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^(nginx|wordpress|mariadb|redis|ftp|staticsite|adminer|dbbackup)$'); do
         S=$(docker exec "$c" sh -c 'printf "%s" "$(readlink -f /bin/sh)"; v=$(sh --version 2>/dev/null | head -1); [ -z "$v" ] || printf " (%s)" "$v"' 2>/dev/null)
@@ -1098,32 +816,22 @@ R03EOF
     [ $ok -eq 1 ] && pass "R24 every container runs its scripts under one shell: $(printf '%s' "$SHELLS" | head -1)"
 fi
 
-# ─────────────────────────────────────────────────────────────────────
 section "[E] Evaluation sheet (per-service walkthrough)"
-# ─────────────────────────────────────────────────────────────────────
-# The points an evaluator works through by hand, automated so a regression
-# cannot reach the defence unnoticed.
 if [ $RUNNING -eq 0 ]; then
     skip "E** stack not running"
 else
     WPX="docker exec wordpress wp --allow-root --path=/var/www/html"
 
-    # E01/E02 a Dockerfile per service, and no NGINX inside the app services.
-    # R11 checks the built image; this checks the source, which is what the
-    # evaluator actually reads.
     ok=1
     for svc in wordpress mariadb; do
         DF="srcs/requirements/$svc/Dockerfile"
         [ -s "$DF" ] || { ok=0; fail "E01 $DF missing or empty"; continue; }
-        # Match nginx as an installed package or a command, not the word in a
-        # comment explaining that it is deliberately absent.
         if grep -vE '^[[:space:]]*#' "$DF" | grep -qiE '(apk add|apt-get install|yum install)[^&|]*[[:space:]]nginx([[:space:]]|$)|^[[:space:]]*(CMD|ENTRYPOINT).*nginx'; then
             ok=0; fail "E02 $DF installs or runs nginx"
         fi
     done
     [ $ok -eq 1 ] && pass "E01/E02 wordpress and mariadb have their own Dockerfile, neither installs nginx"
 
-    # E03 the containers exist as far as compose is concerned
     CPS=$(docker compose -f "$COMPOSE_FILE" ps --format '{{.Name}} {{.State}}' 2>/dev/null)
     ok=1
     for c in nginx wordpress mariadb; do
@@ -1131,7 +839,6 @@ else
     done
     [ $ok -eq 1 ] && pass "E03 docker compose ps shows nginx, wordpress and mariadb running"
 
-    # E04 volumes, checked the way the sheet says: docker volume inspect
     ok=1
     for v in $(docker volume ls -q 2>/dev/null | grep -E 'wp_data|db_data'); do
         DEV=$(docker volume inspect --format '{{index .Options "device"}}' "$v" 2>/dev/null)
@@ -1142,23 +849,12 @@ else
     done
     [ $ok -eq 1 ] && pass "E04 docker volume inspect shows /home/$LOGIN/data/ for both volumes"
 
-    # E05 the administrator can REALLY sign in over HTTPS.
-    # R06 only proved the login form is reachable; this posts credentials and
-    # checks WordPress issues a logged-in cookie and serves the dashboard.
     ADMIN_USER=$(sed -n 's/^WP_ADMIN_USER=//p' srcs/.env | head -1)
     ADMIN_PW=$(sed -n 1p secrets/credentials.txt 2>/dev/null)
     if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PW" ]; then
-        # Split into the two things the evaluator actually does, so a failure
-        # names the stage instead of just "did not reach the dashboard" — the
-        # earlier one-shot form could not distinguish a rejected password from a
-        # dashboard that merely rendered slowly, which made it undiagnosable.
         JAR=$(mktemp)
         curl -ks -c "$JAR" --max-time 20 "https://${DOMAIN}/wp-login.php" -o /dev/null
 
-        # Stage 1 — POST the credentials. WordPress answers a successful sign-in
-        # with 302 to redirect_to plus a wordpress_logged_in cookie; a rejected
-        # one answers 200 and re-renders the form. That is the authoritative
-        # signal, and it does not depend on any page rendering.
         LOGIN_HDR=$(curl -ks -b "$JAR" -c "$JAR" -D - -o /dev/null --max-time 30 \
             --data-urlencode "log=${ADMIN_USER}" \
             --data-urlencode "pwd=${ADMIN_PW}" \
@@ -1170,9 +866,6 @@ else
         HAS_COOKIE=$(grep -c 'wordpress_logged_in' "$JAR" 2> /dev/null || echo 0)
 
         if [ "${HAS_COOKIE:-0}" -lt 1 ]; then
-            # Ask WordPress directly whether the stored hash matches, which
-            # separates "the password in secrets/ is not the password in the
-            # database" from "the HTTP sign-in path is broken".
             PW_OK=$(docker exec -e CPW="$ADMIN_PW" -e CU="$ADMIN_USER" wordpress php -r \
                 'require "/var/www/html/wp-load.php";
                  $u = get_user_by("login", getenv("CU"));
@@ -1181,7 +874,6 @@ else
             fail "E05 administrator sign-in was rejected" \
                  "POST wp-login.php -> HTTP ${LOGIN_CODE:-none}, no wordpress_logged_in cookie; stored password matches secrets/credentials.txt: ${PW_OK:-unknown}"
         else
-            # Stage 2 — the dashboard itself, fetched with the session cookie.
             DASH=$(curl -ks -b "$JAR" --max-time 60 -w '\n%{http_code}' "https://${DOMAIN}/wp-admin/")
             DASH_CODE=$(printf '%s' "$DASH" | tail -n1)
             if [ "$DASH_CODE" = "200" ] && printf '%s' "$DASH" | grep -qi 'dashboard\|wp-admin-bar\|adminmenu'; then
@@ -1196,7 +888,6 @@ else
         warn "E05 could not read admin credentials (run make setup)"
     fi
 
-    # E06 a comment can be added by the non-administrator user and shows up
     POST_ID=$($WPX post list --post_type=post --post_status=publish --posts_per_page=1 --field=ID 2>/dev/null | head -1)
     WPUSER=$(sed -n 's/^WP_USER=//p' srcs/.env | head -1)
     if [ -n "$POST_ID" ] && [ -n "$WPUSER" ]; then
@@ -1216,9 +907,6 @@ else
         warn "E06 no published post or WP_USER to comment with"
     fi
 
-    # E07 editing a page is reflected on the website.
-    # The dashboard writes through the same API wp-cli uses, so this exercises
-    # the same path end to end without driving a browser.
     PAGE_ID=$($WPX post list --post_type=page --post_status=publish --posts_per_page=1 --field=ID 2>/dev/null | head -1)
     if [ -n "$PAGE_ID" ]; then
         OLD=$($WPX post get "$PAGE_ID" --field=content 2>/dev/null)
@@ -1236,7 +924,6 @@ else
         warn "E07 no published page to edit"
     fi
 
-    # E08 the database can be logged into and is not empty
     DBUSER=$(sed -n 's/^MYSQL_USER=//p' srcs/.env | head -1)
     DBNAME=$(sed -n 's/^MYSQL_DATABASE=//p' srcs/.env | head -1)
     ROWS=$(printf 'SELECT COUNT(*) FROM %s;\n' "${PFX:-wp_}posts" \
@@ -1250,19 +937,12 @@ else
     fi
 fi
 
-# ─────────────────────────────────────────────────────────────────────
 section "[B] Bonus"
-# ─────────────────────────────────────────────────────────────────────
-# The bonus is optional, and it is only looked at if the mandatory part is
-# perfect. So an absent bonus is reported as skipped, not failed — but a bonus
-# that IS present has to work, because a half-built one is worse at defence
-# than none at all.
 if [ $RUNNING -eq 0 ]; then
     skip "B** stack not running"
 else
     has_container() { docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$1"; }
 
-    # B01 redis cache wired into WordPress
     if has_container redis; then
         ok=1
         docker exec redis redis-cli ping 2>/dev/null | grep -qi PONG \
@@ -1276,13 +956,11 @@ else
         skip "B01 redis cache not implemented"
     fi
 
-    # B02 FTP server pointing at the WordPress volume
     if has_container ftp || has_container vsftpd; then
         FTPC=$(docker ps --format '{{.Names}}' | grep -E '^(ftp|vsftpd)$' | head -1)
         ok=1
         docker exec "$FTPC" sh -c 'nc -z 127.0.0.1 21' 2>/dev/null \
             || { ok=0; fail "B02 $FTPC is not listening on port 21"; }
-        # The point of the bonus is that it serves the SITE volume, not a copy.
         docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "$FTPC" 2>/dev/null \
             | grep -q 'wp_data' || { ok=0; fail "B02 $FTPC does not mount the WordPress site volume"; }
         [ $ok -eq 1 ] && pass "B02 $FTPC listens on 21 and serves the WordPress volume"
@@ -1290,14 +968,12 @@ else
         skip "B02 FTP server not implemented"
     fi
 
-    # B03 static site, in any language except PHP
     if has_container staticsite; then
         ok=1
         SPORT=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/^staticsite/{print}' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | head -1)
         : "${SPORT:=8090}"
         [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "http://${DOMAIN}:${SPORT}/")" = "200" ] \
             || { ok=0; fail "B03 static site does not answer on port $SPORT"; }
-        # "except PHP" is the actual rule, so check the sources and the image.
         PHPSRC=$(grep -rlE '<\?php' srcs/requirements/bonus/ 2>/dev/null || true)
         [ -n "$PHPSRC" ] && { ok=0; fail "B03 static site contains PHP" "$PHPSRC"; }
         docker exec staticsite sh -c 'command -v php' >/dev/null 2>&1 \
@@ -1307,7 +983,6 @@ else
         skip "B03 static website not implemented"
     fi
 
-    # B04 Adminer
     if has_container adminer; then
         APORT=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/^adminer/{print}' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | head -1)
         if [ -n "$APORT" ] && curl -s --max-time 8 "http://127.0.0.1:${APORT}/" | grep -qi adminer; then
@@ -1319,12 +994,6 @@ else
         skip "B04 Adminer not implemented"
     fi
 
-    # B05 a service of your choice — here, scheduled database backups
-    #
-    # "A container is running" is not evidence a backup service works; that is
-    # exactly how backups are discovered to be broken on the day they are
-    # needed. So: a dump must exist, be non-empty, and pass gzip's own integrity
-    # check.
     if has_container dbbackup; then
         ok=1
         LATEST=$(docker exec dbbackup sh -c 'ls -t /backups/*.sql.gz 2>/dev/null | head -1' 2>/dev/null)
@@ -1336,13 +1005,9 @@ else
             SIZE=$(docker exec dbbackup sh -c "wc -c < '$LATEST'" 2>/dev/null | tr -d ' ')
             [ "${SIZE:-0}" -gt 1000 ] 2>/dev/null \
                 || { ok=0; fail "B05 the latest backup is suspiciously small (${SIZE:-0} bytes)"; }
-            # It must contain the WordPress schema, not just be a well-formed
-            # empty dump.
             docker exec dbbackup sh -c "gzip -dc '$LATEST' | grep -qi 'CREATE TABLE'" 2>/dev/null \
                 || { ok=0; fail "B05 the backup contains no CREATE TABLE — it is not a real dump"; }
         fi
-        # The restore path is half the service; a backup you cannot restore is
-        # not a backup.
         docker exec dbbackup test -x /usr/local/bin/restore.sh 2>/dev/null \
             || { ok=0; fail "B05 no restore script in the backup container"; }
         [ $ok -eq 1 ] && pass "B05 dbbackup: verified dump present ($(basename "$LATEST"), ${SIZE} bytes) and a restore path exists"
@@ -1357,16 +1022,13 @@ else
     fi
 fi
 
-# ─────────────────────────────────────────────────────────────────────
 section "[D] Deep (crash-restart & persistence)"
-# ─────────────────────────────────────────────────────────────────────
 
 if [ $DEEP -eq 0 ]; then
     skip "D** run with --deep (or 'make test-deep') to exercise crash-restart and persistence"
 elif [ $RUNNING -eq 0 ]; then
     skip "D** stack not running"
 else
-    # D01 containers come back after their PID 1 dies
     ok=1
     for c in nginx wordpress mariadb; do
         BEFORE=$(docker inspect --format '{{.Created}}{{.State.StartedAt}}' "$c")
@@ -1383,7 +1045,6 @@ else
     done
     [ $ok -eq 1 ] && pass "D01 all containers auto-restart after their main process dies"
 
-    # wait for the stack to settle again
     i=0
     while [ $i -lt 45 ]; do
         CODE=$(curl -ks -o /dev/null -w '%{http_code}' --max-time 2 "https://$DOMAIN/" 2>/dev/null || echo 000)
@@ -1391,25 +1052,6 @@ else
         sleep 2; i=$((i+1))
     done
 
-    # D03 containers come back from a REAL crash
-    #
-    # D01 above kills PID 1 from inside the container, which only works because
-    # the daemons handle SIGTERM: they shut down cleanly and exit 0. That proves
-    # an unexpected exit is restarted, but it is not a crash.
-    #
-    # Two things that look like they would simulate one, and do not:
-    #   docker exec <c> kill -9 1   the kernel refuses SIGKILL sent to PID 1
-    #                               from inside its own PID namespace. No-op.
-    #   docker kill <c>             goes through the Docker API, which records a
-    #                               manual stop, so the restart policy is
-    #                               deliberately skipped and the container stays
-    #                               exited. Measured: the site went down and did
-    #                               not come back.
-    #
-    # A real crash is SIGKILL to the container's init as seen from the HOST pid
-    # namespace, which never touches the Docker API. RestartCount incrementing
-    # is what proves the restart policy did the work, rather than an entrypoint
-    # respawning something internally.
     if [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null; then
         SUDO=""; [ "$(id -u)" = "0" ] || SUDO="sudo -n"
         ok=1
@@ -1430,7 +1072,6 @@ else
             done
             [ $back -eq 1 ] || { ok=0; fail "D03 $c did not restart after SIGKILL (RestartCount stayed $BEFORE)"; }
         done
-        # let the stack settle before the persistence test below
         i=0
         while [ $i -lt 45 ]; do
             CODE=$(curl -ks -o /dev/null -w '%{http_code}' --max-time 2 "https://$DOMAIN/" 2>/dev/null || echo 000)
@@ -1442,7 +1083,6 @@ else
         warn "D03 real-crash test needs root to signal the container's init — run: sudo -E sh tests/compliance.sh --deep"
     fi
 
-    # D02 data survives a full down/up cycle
     STAMP="persist-$(date +%s)"
     docker exec wordpress wp --allow-root --path=/var/www/html option update inception_persist "$STAMP" >/dev/null 2>&1
     docker exec wordpress sh -c "echo $STAMP > /var/www/html/wp-content/persist_check.txt" 2>/dev/null
@@ -1465,7 +1105,6 @@ else
     docker exec wordpress wp --allow-root --path=/var/www/html option delete inception_persist >/dev/null 2>&1
 fi
 
-# ─────────────────────────────────────────────────────────────────────
 printf "\n${BLU}══ Summary ══${RST}  ${GRN}%d passed${RST}  ${RED}%d failed${RST}  ${YLW}%d warnings${RST}  ${DIM}%d skipped${RST}\n" "$PASS" "$FAIL" "$WARN" "$SKIP"
 [ $FAIL -gt 254 ] && exit 254
 exit $FAIL

@@ -1,28 +1,19 @@
 <?php
-/**
- * Inception site seeding — executed in ONE PHP process via
- * `wp eval-file seed.php` (WordPress fully bootstrapped by WP-CLI).
- * Every step is idempotent; a marker option short-circuits the
- * content phase on later boots.
- */
 
 $src = '/usr/src/inception-site';
 
-/* ── 1. Activate plugin + theme (cheap no-ops when already active) ── */
 require_once ABSPATH . 'wp-admin/includes/plugin.php';
 activate_plugin( 'inception-kit/inception-kit.php' );
 if ( wp_get_theme()->get_stylesheet() !== 'inception-terminal' ) {
 	switch_theme( 'inception-terminal' );
 }
 
-/* ── 2. Pretty permalinks ─────────────────────────────────────────── */
 if ( get_option( 'permalink_structure' ) !== '/%postname%/' ) {
 	global $wp_rewrite;
 	$wp_rewrite->set_permalink_structure( '/%postname%/' );
 	flush_rewrite_rules();
 }
 
-/* ── 3. Content (once) ────────────────────────────────────────────── */
 if ( get_option( 'inception_site_seeded' ) === '1' ) {
 	WP_CLI::log( '[site] content already seeded' );
 	return;
@@ -63,7 +54,6 @@ $ar_id      = ink_ensure( 'architecture', 'architecture', 'page', "$pages/archit
 $bm_id      = ink_ensure( 'benchmarks', 'benchmarks', 'page', "$pages/benchmarks.html" );
 $qa_id      = ink_ensure( 'defense-qa', 'defense-qa', 'page', "$pages/defense-qa.html" );
 
-/* journal category + posts */
 $term    = wp_insert_term( 'Engineering Journal', 'category', array( 'slug' => 'engineering-journal' ) );
 $term_id = is_wp_error( $term )
 	? (int) ( get_term_by( 'slug', 'engineering-journal', 'category' )->term_id ?? 0 )
@@ -82,7 +72,6 @@ foreach ( $journal_posts as $jp ) {
 	}
 }
 
-/* drop WordPress sample content */
 foreach ( array( array( 'hello-world', 'post' ), array( 'sample-page', 'page' ) ) as $sample ) {
 	$s = get_page_by_path( $sample[0], OBJECT, $sample[1] );
 	if ( $s ) {
@@ -90,7 +79,6 @@ foreach ( array( array( 'hello-world', 'post' ), array( 'sample-page', 'page' ) 
 	}
 }
 
-/* navigation menu */
 $menu    = wp_get_nav_menu_object( 'primary' );
 $menu_id = $menu ? (int) $menu->term_id : (int) wp_create_nav_menu( 'primary' );
 if ( empty( wp_get_nav_menu_items( $menu_id ) ) ) {
@@ -125,7 +113,6 @@ $locations            = get_theme_mod( 'nav_menu_locations', array() );
 $locations['primary'] = $menu_id;
 set_theme_mod( 'nav_menu_locations', $locations );
 
-/* static front page + posts page */
 update_option( 'show_on_front', 'page' );
 update_option( 'page_on_front', $home_id );
 update_option( 'page_for_posts', $journal_id );
