@@ -78,6 +78,7 @@ during step 1 (to add a line to `/etc/hosts`) — **this only happens on the fir
 > If `sudo` fails with `sorry, you must have a tty to run sudo` (this happens when
 > `make` is driven by another program instead of a normal interactive terminal), run
 > this one line yourself in a real terminal first, then re-run `make`:
+>
 > ```bash
 > echo "127.0.0.1 dlesieur.42.fr" | sudo tee -a /etc/hosts
 > ```
@@ -90,7 +91,7 @@ docker compose -f srcs/docker-compose.yml ps
 
 Expected output — all three `Up ... (healthy)`:
 
-```
+```text
 NAME        STATUS
 mariadb      Up (healthy)
 wordpress    Up (healthy)
@@ -122,6 +123,7 @@ The domain name defaults to **`dlesieur.42.fr`** — it comes from the `LOGIN` v
 at the top of the `Makefile` (`LOGIN = dlesieur`), not from your actual Linux username.
 If you're running this on a machine where you are *not* `dlesieur` (e.g. you cloned
 this repo under your own account), either:
+
 - keep using `dlesieur.42.fr` as-is (it will still work — it's just a name, resolved
   locally via `/etc/hosts`), or
 - edit `LOGIN` in the `Makefile` to your own username before the first `make`, so the
@@ -173,6 +175,7 @@ You'll get a certificate warning (`NET::ERR_CERT_AUTHORITY_INVALID` / "Your conn
 is not private") the first time — this is expected, because the certificate is issued
 by a *local* certificate authority your browser doesn't know yet, not a public one.
 Either:
+
 - click through the warning once ("Advanced" → "Proceed anyway"), or
 - run `make trust` — it installs the local CA into your system and browser trust
   stores (covers Firefox and Chromium, including their Snap/Flatpak variants), so the
@@ -200,6 +203,7 @@ VirtualBox → select the VM → *Settings* → *Network* → *Adapter 1* → *A
 | inception-static | TCP | (empty) | `8090` | (empty) | `8090` |
 
 Or from the host's terminal (works while the VM is running):
+
 ```bash
 VBoxManage controlvm "<vm-name>" natpf1 "inception-https,tcp,,8443,,443"
 VBoxManage controlvm "<vm-name>" natpf1 "inception-static,tcp,,8090,,8090"
@@ -230,9 +234,11 @@ is optional; everything in this section already works without it.
 
 Add to the **host's own** hosts file (`/etc/hosts` on Linux/macOS,
 `C:\Windows\System32\drivers\etc\hosts` on Windows, edited as administrator):
-```
+
+```text
 127.0.0.1   dlesieur.42.fr
 ```
+
 Or, for a Bridged-Adapter VM (own LAN IP, no port forwarding needed), use the VM's
 real IP instead of `127.0.0.1` and skip the port in the URL below.
 
@@ -332,7 +338,6 @@ passwords and a freshly issued certificate.
 
 For architecture details, performance notes, and a defense/Q&A style deep dive, see
 `DEV_DOC.md`.
-
 
 ---
 

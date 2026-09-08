@@ -1,7 +1,11 @@
 # Secrets (NEVER commit)
 secrets/
 
-# Environment file with real values
+# Environment files with real values. The bare pattern matters: the subject puts
+# the project's env at srcs/.env, but a stray .env at the repository root is NOT
+# covered by that path and would be tracked — which is how a token ends up in a
+# commit. Ignore both.
+.env
 srcs/.env
 
 # Host data volumes
@@ -16,4 +20,4 @@ srcs/.env
 .idea/
 
 # The shell copied into the images by make setup (see srcs/shell/README.md)
-srcs/shell/sh
+srcs/shell/hellish

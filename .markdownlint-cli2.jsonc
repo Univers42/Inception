@@ -1,0 +1,58 @@
+// markdownlint configuration for this repository.
+//
+// Picked up automatically by `markdownlint-cli2` — which is what nvim-lint runs
+// on every markdown write (see ~/.config/nvim/plugin/60-b2b-ide.lua). Without
+// this file the tool falls back to its defaults, which disagree with how the
+// three graded documents (README.md, USER_DOC.md, DEV_DOC.md) are deliberately
+// written, and buries the handful of real problems under ~320 style complaints.
+//
+// Every rule turned off below is turned off for a reason stated next to it.
+// Structural rules — fences, lists, blank lines, heading order — are all left
+// ON, because those are the ones that actually change how a renderer parses the
+// file.
+{
+  "config": {
+    "default": true,
+
+    // MD013 line-length: prose here is hard-wrapped at 90 columns, which is the
+    // width the whole project is written to. Tables, fenced code and headings
+    // are exempt outright: a Makefile recipe, a `docker exec` one-liner or a
+    // troubleshooting table row cannot be wrapped without breaking the thing it
+    // documents.
+    "MD013": {
+      "line_length": 90,
+      "tables": false,
+      "code_blocks": false,
+      "headings": false
+    },
+
+    // MD033 inline HTML: USER_DOC.md uses <details>/<summary> to collapse the
+    // optional VM port-forwarding walkthrough, which has no Markdown equivalent
+    // and renders natively on GitHub. <code> is needed inside <summary>, where
+    // backticks are not parsed.
+    "MD033": {
+      "allowed_elements": ["details", "summary", "code", "br", "kbd", "img"]
+    },
+
+    // MD041 first-line-heading: the 42 subject requires README.md to open with
+    // the italicised "*This project has been created as part of the 42
+    // curriculum by dlesieur.*" line, and tests/compliance.sh (S02, S25) fails
+    // the project if it does not. The rule and the grader are in direct
+    // conflict; the grader wins.
+    "MD041": false,
+
+    // MD060 table-column-style: added in markdownlint v0.41 and cosmetic only —
+    // it wants every pipe padded identically across a table. These documents use
+    // compact `|---|---|` separator rows with padded cells, which is readable in
+    // a terminal and renders identically everywhere. 140 complaints, zero
+    // rendering impact.
+    "MD060": false
+  },
+
+  "globs": ["**/*.md"],
+  "ignores": [
+    "vendor/**",
+    "node_modules/**",
+    "srcs/shell/README.md"
+  ]
+}

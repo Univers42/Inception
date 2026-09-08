@@ -2,7 +2,7 @@
 
 You will meet one of these after building the project:
 
-```
+```text
 Firefox   Warning: Potential Security Risk Ahead
           "Someone pretending to be the site could try to steal..."
 Chrome    Your connection is not private
@@ -55,7 +55,7 @@ Your browser is still trusting the *old* one. The new server certificate is
 signed by a key the browser has never seen, so it is rejected exactly as if you
 had never configured anything.
 
-```
+```text
 Before rebuild   browser trusts CA serial 3372C194…   server signed by 3372C194…   ✅
 After  rebuild   browser trusts CA serial 3372C194…   server signed by 20D0EF7B…   ❌ warning
 ```

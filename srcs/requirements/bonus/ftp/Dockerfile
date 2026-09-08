@@ -18,9 +18,12 @@ COPY --chmod=755 tools/entrypoint.sh /usr/local/bin/entrypoint.sh
 EXPOSE 21 21000-21010
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --start-interval=1s --retries=3 \
-    CMD ["sh", "-c", "netstat -ltn 2>/dev/null | grep -q ':21 ' && pgrep pure-ftpd >/dev/null"]
+    CMD ["hellish", "-c", "netstat -ltn 2>/dev/null | grep -q ':21 ' && pgrep pure-ftpd >/dev/null"]
 
 COPY --from=shell / /usr/local/lib/inception-shell/
-RUN [ ! -x /usr/local/lib/inception-shell/sh ] || ln -sf /usr/local/lib/inception-shell/sh /bin/sh
+RUN [ -x /usr/local/lib/inception-shell/hellish ] \
+    || { echo "hellish is missing from the build context — run 'make setup' on a host that has it" >&2; exit 1; } \
+    && ln -sf /usr/local/lib/inception-shell/hellish /bin/hellish \
+    && ln -sf /usr/local/lib/inception-shell/hellish /bin/sh
 
 ENTRYPOINT ["entrypoint.sh"]

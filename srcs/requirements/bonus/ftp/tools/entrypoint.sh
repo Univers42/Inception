@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/hellish
 set -eu
 
 : "${FTP_USER:?FTP_USER is required}"

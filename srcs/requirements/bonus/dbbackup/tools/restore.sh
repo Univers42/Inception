@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/hellish
 set -eu
 
 : "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}"

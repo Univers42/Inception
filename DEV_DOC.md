@@ -87,7 +87,7 @@ through `docker-compose.yml`). `make up` does, in order:
 
 ## 3. Architecture
 
-```
+```text
         ┌──────────┐
 Client ──► NGINX:443 │   TLS 1.2/1.3 termination — the ONLY published port
         │  (nginx)  │   serves static files directly from the shared volume (ro)
@@ -333,6 +333,7 @@ administrator; an active theme; PID 1 is the real daemon; service isolation (no 
 in the app containers); secrets not leaked via environment; crash-restart; persistence.
 
 **Pre-submission checklist:**
+
 - `make test-deep` fully green.
 - Re-run near the defense date: the "penultimate stable Alpine" target moves when
   Alpine releases — the suite checks Docker Hub live and will tell you to bump.
@@ -495,7 +496,7 @@ The WordPress site itself hosts this documentation as a terminal-styled blog —
 custom theme + plugin, fully **baked into the image** so `make re` or a fresh
 clone reproduces it with zero manual steps.
 
-```
+```text
 srcs/requirements/wordpress/site/
 ├── install.sh                    # entrypoint hook: sync files + run seed.php (idempotent, non-fatal)
 ├── seed.php                      # ONE wp eval-file process: activate, permalinks, pages/posts/menu
@@ -539,7 +540,7 @@ your choice except PHP."* This is a **separate service from WordPress**, not a p
 rendered by it — WordPress itself is mandatorily PHP (`php-fpm`), so there is no such
 thing as a "PHP-free WordPress page"; the bonus rule targets an independent site.
 
-```
+```text
 srcs/requirements/bonus/staticsite/
 ├── Dockerfile              # alpine:3.23 + nginx only — same base/conventions as
 │                            #   the mandatory services, no PHP package installed
@@ -591,7 +592,6 @@ srcs/requirements/bonus/staticsite/
 | `make bench` numbers look bad | Machine load skews everything — benchmark on a quiet machine (see §8.3) |
 | Compose errors about missing secret files | Run through `make` (not raw compose): `make setup` provisions secrets and certs first |
 
-
 ---
 
 ## 11. Bonus services
@@ -630,7 +630,7 @@ The interesting part is permissions. WordPress files are owned by `nobody`
 (uid 65534). Rather than `chmod -R g+w` across ~2600 files, the image adds a
 second `/etc/passwd` entry sharing that uid:
 
-```
+```text
 ftpuser:x:65534:65534:FTP:/var/www/html:/sbin/nologin
 ```
 

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/hellish
 set -eu
 
 SRC=/usr/src/inception-site

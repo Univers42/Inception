@@ -22,9 +22,12 @@ COPY --chmod=755 tools/entrypoint.sh /usr/local/bin/entrypoint.sh
 EXPOSE 3306
 
 HEALTHCHECK --interval=3s --timeout=3s --start-period=30s --start-interval=500ms --retries=10 \
-    CMD sh -c 'MYSQL_PWD="$(cat /run/secrets/db_password)" mariadb-admin ping -h 127.0.0.1 -u "$MYSQL_USER" --silent'
+    CMD hellish -c 'MYSQL_PWD="$(cat /run/secrets/db_password)" mariadb-admin ping -h 127.0.0.1 -u "$MYSQL_USER" --silent'
 
 COPY --from=shell / /usr/local/lib/inception-shell/
-RUN [ ! -x /usr/local/lib/inception-shell/sh ] || ln -sf /usr/local/lib/inception-shell/sh /bin/sh
+RUN [ -x /usr/local/lib/inception-shell/hellish ] \
+    || { echo "hellish is missing from the build context — run 'make setup' on a host that has it" >&2; exit 1; } \
+    && ln -sf /usr/local/lib/inception-shell/hellish /bin/hellish \
+    && ln -sf /usr/local/lib/inception-shell/hellish /bin/sh
 
 ENTRYPOINT ["entrypoint.sh"]

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/hellish
 set -eu
 
 : "${DOMAIN_NAME:?}" "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}" "${WP_TITLE:?}"
@@ -170,7 +170,7 @@ if [ -f /var/www/html/wp-config.php ] \
     rm -f "$TMP_CFG"
 fi
 
-sh /usr/src/inception-site/install.sh \
+hellish /usr/src/inception-site/install.sh \
     || echo "[entrypoint] WARN: site provisioning failed (service boots anyway)" >&2
 
 enable_redis_cache() {

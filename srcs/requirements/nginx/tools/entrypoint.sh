@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/hellish
 set -eu
 
 : "${DOMAIN_NAME:?DOMAIN_NAME is required}"

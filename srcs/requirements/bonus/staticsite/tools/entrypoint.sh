@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/hellish
 set -eu
 
 echo "[entrypoint] Starting static-site NGINX ..."
