@@ -26,3 +26,8 @@ srcs/shell/hellish
 # the pusher alone); never shared, never committed.
 .env.local
 srcs/.env.local
+
+# One person's local overrides — private to whoever pushes them (42ctl seals *.local to
+# the pusher alone); never shared, never committed.
+.env.local
+srcs/.env.local
