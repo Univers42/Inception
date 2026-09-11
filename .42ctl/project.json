@@ -1,0 +1,7 @@
+{
+  "project_id": "43c3a63c-f358-5053-a29d-2c0b9e722fcc",
+  "patterns": [
+    "*.env*",
+    "*.secrets"
+  ]
+}

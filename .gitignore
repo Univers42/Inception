@@ -21,3 +21,8 @@ srcs/.env
 
 # The shell copied into the images by make setup (see srcs/shell/README.md)
 srcs/shell/hellish
+
+# One person's local overrides — private to whoever pushes them (42ctl seals *.local to
+# the pusher alone); never shared, never committed.
+.env.local
+srcs/.env.local

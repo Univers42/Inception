@@ -1,4 +1,5 @@
 #!/bin/hellish
+# shellcheck shell=sh
 set -eu
 
 : "${FTP_USER:?FTP_USER is required}"

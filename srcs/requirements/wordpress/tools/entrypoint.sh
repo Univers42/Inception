@@ -1,4 +1,5 @@
 #!/bin/hellish
+# shellcheck shell=sh
 set -eu
 
 : "${DOMAIN_NAME:?}" "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}" "${WP_TITLE:?}"

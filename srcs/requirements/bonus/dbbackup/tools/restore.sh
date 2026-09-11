@@ -1,4 +1,5 @@
 #!/bin/hellish
+# shellcheck shell=sh
 set -eu
 
 : "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}"

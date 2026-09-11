@@ -14,26 +14,80 @@ If you only ever read one file to use this project, read this one.
 ## 1. What you get
 
 Inception deploys a complete WordPress website served over HTTPS, entirely inside
-Docker containers, built from scratch by this project (no ready-made images):
+Docker containers, built from scratch by this project (no ready-made images).
 
-| Service | Purpose |
-|---------|---------|
-| **NGINX** | The web server. Serves the site over TLS on port 443 — the only door into the WordPress stack |
-| **WordPress** | The content management system (CMS) you use to write and manage the site |
-| **MariaDB** | The database that stores all site content (posts, users, settings) |
-| **Static site** *(bonus)* | An independent, hand-written HTML/CSS/JS page — no PHP, no CMS — on port 8090 |
+**Eight containers run**, not three: the three the subject makes mandatory, plus five
+bonus ones. Each is one container running exactly one long-lived program as PID 1 —
+that is what makes it a *service* here, and the distinction matters, because two things
+in this project look like services and are not (see "What is **not** a service" below).
 
-The first three services run in separate Docker containers and talk to each other over
-a private Docker network; only NGINX's port (443) is reachable from outside that group.
-The bonus static site is a fourth, fully independent container with its own port (8090)
-— it shares nothing with WordPress or MariaDB. See §5c.
+### The eight services
+
+| Service | Daemon running as PID 1 | Published to the host | Purpose |
+|---|---|---|---|
+| **nginx** | `nginx -g "daemon off;"` | **443** (TLS) | The web server, and the only door into the WordPress stack |
+| **wordpress** | `php-fpm84 -F` | — (9000, network-internal) | The PHP processor running the CMS. Never talks to the host directly — nginx forwards to it |
+| **mariadb** | `mariadbd --user=mysql` | — (3306, network-internal) | The database holding all site content (posts, users, settings) |
+| **staticsite** *(bonus)* | `nginx -g "daemon off;"` | **8090** (plain HTTP) | A second, independent web server serving hand-written HTML/CSS/JS — no PHP, no CMS |
+| **redis** *(bonus)* | `redis-server /etc/redis.conf` | — (6379, network-internal) | Object cache for WordPress, so repeated page loads skip database queries |
+| **ftp** *(bonus)* | `pure-ftpd` | **21**, plus **21000–21010** for passive data | File access into the WordPress site files |
+| **adminer** *(bonus)* | `php -S 0.0.0.0:8080` | **8080** (plain HTTP) | A web UI for browsing and editing the database |
+| **dbbackup** *(bonus)* | `crond -f -l 8 -L /dev/stdout` | — (no port at all) | Scheduled database dumps; the daemon is cron itself |
+
+Only the four ports in bold are reachable from outside. Everything else talks over a
+private Docker bridge network named `inception`, where containers find each other by
+service name (`mariadb`, `redis`, …) — never by IP address.
+
+### What is **not** a service
+
+Two things in this repository are easy to mistake for services, and neither is a
+container in the running stack:
+
+| Thing | What it actually is |
+|---|---|
+| **The documentation website** | Web pages, not a daemon. A custom theme, plugin and seed content living at `srcs/requirements/wordpress/site/`, baked into the WordPress image and installed into the CMS on boot. You reach it through the **nginx + wordpress** pair on port 443 like any other page of the site — it has no container, no port and no process of its own |
+| **42ctl** | A command-line tool, not a daemon. It has a Dockerfile (`srcs/requirements/bonus/42ctl/`) but is deliberately absent from `docker-compose.yml`, because a CLI exits as soon as its command finishes, and a service here must run a real daemon as PID 1. It is built by `make 42ctl` and invoked one shot at a time by the `make vault-*` targets |
+
+The general rule: **a port you browse to is not the same thing as a service.** A service
+is a container with a daemon in it; a website is content that some service serves for you.
+
+### Policies applied to every service
+
+These are set identically across all eight, so there is one behaviour to remember rather
+than eight:
+
+| Policy | Value | What it means for you |
+|---|---|---|
+| Restart | `restart: unless-stopped` | A crashed container comes back by itself, and stays down after `make stop` until you ask for it |
+| Health | a `HEALTHCHECK` in every one of the eight Dockerfiles | `make status` reports real health, not just "the process exists" |
+| Network | one bridge network, `inception` | No container is on the host's network |
+| PID 1 | the daemon itself, via `exec` | No `tail -f`, no `sleep infinity`, no supervisor — stopping the container signals the real program |
+| Secrets | Docker secrets at `/run/secrets/*`, mode `0400` | No password is ever passed as an environment variable |
+
+Startup order is enforced by health, not by guesswork — Compose waits for the
+dependency to report *healthy* before starting the dependent:
+
+- **nginx** waits for wordpress
+- **wordpress** waits for mariadb and redis
+- **adminer** waits for mariadb
+- **dbbackup** waits for mariadb and wordpress
+- **mariadb**, **redis**, **staticsite** and **ftp** wait for nothing — they have no dependencies
+
+See §5c for the static site and §10 for the other bonus services.
 
 ---
 
 ## 2. Prerequisites
 
-Install these before doing anything else. All commands below are for Debian/Ubuntu —
-adjust the package manager if you're on a different distribution.
+There are two ways to run this project. You can run it on a virtual machine — either
+the one you were given or one you build yourself — or you can run it directly on the
+machine you are sitting at. The setup below is identical either way; only the browser
+step differs, and §5a and §5b cover both cases.
+
+### Required tooling
+
+Install these before doing anything else. All commands below are for Debian.
+So, adjust the package manager if you're on a different distribution.
 
 | Requirement | Check it's installed | Install if missing |
 |---|---|---|
@@ -68,8 +122,8 @@ make
 1. **`setup`** — creates data directories, generates `srcs/.env`, generates random
    passwords under `secrets/`, adds an entry to `/etc/hosts`, and issues a local TLS
    certificate. All of this is described in detail in §4 below.
-2. **Build & start** — builds the three Docker images from their Dockerfiles and
-   starts the containers.
+2. **Build & start** — builds the eight Docker images from their Dockerfiles and
+   starts the eight containers.
 
 The very first run takes roughly 15–30 seconds (downloading packages, building
 images, initialising the database and WordPress). Expect one `sudo` password prompt
@@ -83,21 +137,29 @@ during step 1 (to add a line to `/etc/hosts`) — **this only happens on the fir
 > echo "127.0.0.1 dlesieur.42.fr" | sudo tee -a /etc/hosts
 > ```
 
-When it finishes, check that all three containers are healthy:
+When it finishes, check that all eight containers are healthy:
 
 ```bash
 docker compose -f srcs/docker-compose.yml ps
 ```
 
-Expected output — all three `Up ... (healthy)`:
+Expected output — all eight `Up ... (healthy)`, since every image carries a healthcheck:
 
 ```text
-NAME        STATUS
-mariadb      Up (healthy)
-wordpress    Up (healthy)
-nginx        Up (healthy)
-staticsite   Up (healthy)
+NAME         STATUS               PORTS
+adminer      Up (healthy)         0.0.0.0:8080->8080/tcp
+dbbackup     Up (healthy)
+ftp          Up (healthy)         0.0.0.0:21->21/tcp, 0.0.0.0:21000-21010->21000-21010/tcp
+mariadb      Up (healthy)         3306/tcp
+nginx        Up (healthy)         0.0.0.0:443->443/tcp
+redis        Up (healthy)         6379/tcp
+staticsite   Up (healthy)         0.0.0.0:8090->8090/tcp
+wordpress    Up (healthy)         9000/tcp
 ```
+
+A port shown without an `0.0.0.0:...->` prefix (mariadb, redis, wordpress) is
+network-internal — the container listens on it, but the host cannot reach it. That is
+deliberate, not a missing rule.
 
 (`make status` does the same thing.)
 
@@ -197,17 +259,29 @@ VirtualBox GUI configures NAT rules as your normal user, with no `sudo`/admin ne
 VirtualBox → select the VM → *Settings* → *Network* → *Adapter 1* → *Advanced* →
 *Port Forwarding*, add a rule (host port is your choice, e.g. `8443`):
 
-| Name | Protocol | Host IP | Host Port | Guest IP | Guest Port |
-|---|---|---|---|---|---|
-| inception-https | TCP | (empty) | `8443` | (empty) | `443` |
-| inception-static | TCP | (empty) | `8090` | (empty) | `8090` |
+Four services publish a port, so there are five rules — add only the ones you actually
+want to reach from the host. The website is the one that matters; the rest are optional.
+
+| Name | Protocol | Host IP | Host Port | Guest IP | Guest Port | For |
+|---|---|---|---|---|---|---|
+| inception-https | TCP | (empty) | `8443` | (empty) | `443` | the website |
+| inception-static | TCP | (empty) | `8090` | (empty) | `8090` | the static site |
+| inception-adminer | TCP | (empty) | `8080` | (empty) | `8080` | the database UI |
+| inception-ftp | TCP | (empty) | `21` | (empty) | `21` | FTP control |
+| inception-ftp-pasv | TCP | (empty) | `21000-21010` | (empty) | `21000-21010` | FTP passive data |
 
 Or from the host's terminal (works while the VM is running):
 
 ```bash
 VBoxManage controlvm "<vm-name>" natpf1 "inception-https,tcp,,8443,,443"
 VBoxManage controlvm "<vm-name>" natpf1 "inception-static,tcp,,8090,,8090"
+VBoxManage controlvm "<vm-name>" natpf1 "inception-adminer,tcp,,8080,,8080"
+VBoxManage controlvm "<vm-name>" natpf1 "inception-ftp,tcp,,21,,21"
 ```
+
+Only the website's rule remaps the port (guest `443` → host `8443`, because binding
+host port 443 needs root). Keep the others identical on both sides — in particular the
+FTP passive range, which must not be remapped: see §10.
 
 **Step 2 — browse from the host, using `localhost` (not the domain):**
 
@@ -252,8 +326,12 @@ Then browse `https://dlesieur.42.fr:8443` from the host.
 
 Separate from everything above, the stack also ships a **bonus service**: a small
 self-contained static website (plain HTML/CSS/vanilla JavaScript, no PHP, no
-framework) running in its own container, on its own port, with no connection to
-WordPress or MariaDB.
+framework) running in its own container, on its own port.
+
+This one really is a service and not just a page — unlike the documentation website of
+§1, it has its own `nginx` daemon and its own container. It sits on the `inception`
+network like everything else, but it neither queries MariaDB nor shares the WordPress
+volume, so nothing it serves depends on the CMS being up.
 
 | Page | URL |
 |---|---|
@@ -269,7 +347,7 @@ static files. If you're viewing from a VM host (§5b), the same port-forwarding 
 ## 6. Checking that the services are running correctly
 
 ```bash
-make status     # container status — all three should show "Up (healthy)"
+make status     # container status — all eight should show "Up (healthy)"
 make logs       # live logs of all services (Ctrl+C to stop watching)
 make test       # runs the full automated compliance/health check suite
 ```
@@ -304,10 +382,18 @@ rebuild or regenerate anything that already exists.
 
 ## 8. Where is my data, and how do I wipe it?
 
-| Data | Host path | Docker volume |
-|---|---|---|
-| Database | `/home/dlesieur/data/mariadb` | `inception_db_data` |
-| Website files | `/home/dlesieur/data/wordpress` | `inception_wp_data` |
+There are three volumes, each a named Docker volume bound to a directory under
+`/home/dlesieur/data`:
+
+| Data | Host path | Docker volume | Used by |
+|---|---|---|---|
+| Database | `/home/dlesieur/data/mariadb` | `inception_db_data` | mariadb |
+| Website files | `/home/dlesieur/data/wordpress` | `inception_wp_data` | wordpress (read-write), nginx (**read-only**), ftp (read-write) |
+| Database backups | `/home/dlesieur/data/backups` | `inception_backup_data` | dbbackup |
+
+Three services share the WordPress volume, which is why a file uploaded over FTP shows
+up on the website immediately — it is the same directory. nginx mounts it read-only: it
+serves those files but can never modify them.
 
 Data survives `make down` / `make up` cycles and reboots.
 
@@ -349,17 +435,22 @@ the same `make` commands — there is nothing separate to launch.
 | Service | How you reach it | Credentials |
 |---|---|---|
 | **Static showcase site** | `http://dlesieur.42.fr:8090` | none |
-| **Adminer** (database UI) | `http://dlesieur.42.fr:8081` | server `mariadb`, user from `srcs/.env` (`MYSQL_USER`); for the password, read the file `secrets/db_password.txt` |
-| **FTP** | `ftp://127.0.0.1:2121` from your host, or port 21 inside the VM | user from `srcs/.env` (`FTP_USER`); for the password, read the file `secrets/ftp_password.txt` |
+| **Adminer** (database UI) | `http://dlesieur.42.fr:8080` | server `mariadb`, user from `srcs/.env` (`MYSQL_USER`); for the password, read the file `secrets/db_password.txt` |
+| **FTP** | `ftp://127.0.0.1:21` | user from `srcs/.env` (`FTP_USER`); for the password, read the file `secrets/ftp_password.txt` |
 | **Redis cache** | not exposed — it has no published port on purpose | none |
 | **Database backups** | files in `/home/dlesieur/data/backups` | none |
 
 **FTP must be used in passive mode.** Most clients (FileZilla, `lftp`, `curl`)
 do this by default. Active mode cannot work through the VM's NAT.
 
+The passive data ports (`21000–21010`) are published one-to-one on purpose: passive
+mode tells the client which port to open next, so remapping them would advertise a port
+number that no longer leads anywhere. `FTP_PASV_ADDRESS` in `srcs/.env` is `127.0.0.1`
+— correct both inside the VM and from the host through VirtualBox NAT, since both
+routes reach the server over loopback.
+
 ```bash
-# from the host
-curl --ftp-pasv -u ftpuser:"$(cat secrets/ftp_password.txt)" ftp://127.0.0.1:2121/
+curl --ftp-pasv -u ftpuser:"$(cat secrets/ftp_password.txt)" ftp://127.0.0.1:21/
 ```
 
 ### Your backups

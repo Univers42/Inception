@@ -1,4 +1,5 @@
 #!/bin/hellish
+# shellcheck shell=sh
 set -eu
 
 SRC=/usr/src/inception-site

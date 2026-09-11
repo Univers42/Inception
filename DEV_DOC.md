@@ -17,7 +17,7 @@ the test suite, and a **defense preparation Q&A**.
 | Docker Compose v2 plugin | `docker compose version` |
 | GNU Make ≥ 4 | `make --version` |
 | `openssl` on the host | secrets + TLS certificate generation |
-| `sudo` access | needed for `/etc/hosts` and data-dir cleanup |
+| `sudo` access | needed for `/etc/hosts` and data-dir cleanu |
 
 ### 1.2 Configuration files and secrets
 
@@ -88,18 +88,18 @@ through `docker-compose.yml`). `make up` does, in order:
 ## 3. Architecture
 
 ```text
-        ┌──────────┐
-Client ──► NGINX:443 │   TLS 1.2/1.3 termination — the ONLY published port
-        │  (nginx)  │   serves static files directly from the shared volume (ro)
-        └────┬─────┘
-             │ FastCGI :9000 (internal)
-        ┌────▼──────────┐
-        │ WordPress     │   php-fpm 8.4 + WP-CLI — no web server inside
-        └────┬──────────┘
-             │ TCP :3306 (internal)
-        ┌────▼──────────┐
-        │ MariaDB 11.4  │   no web server inside
-        └───────────────┘
+            ┌──────────┐
+Client ──►  | NGINX:443│   TLS 1.2/1.3 termination — the ONLY published port
+            │  (nginx) │   serves static files directly from the shared volume (ro)
+            └────┬─────┘
+                 │ FastCGI :9000 (internal)
+            ┌────▼──────────┐
+            │ WordPress     │   php-fpm 8.4 + WP-CLI — no web server inside
+            └────┬──────────┘
+                 │ TCP :3306 (internal)
+            ┌────▼──────────┐
+            │ MariaDB 11.4  │   no web server inside
+            └───────────────┘
 ```
 
 - All three containers sit on the **`inception` bridge network**; they resolve each
@@ -331,6 +331,38 @@ entrypoints ending in `exec`; TLS 1.2/1.3 accepted and 1.0/1.1 rejected; certifi
 identity; a real WordPress page served; exactly two WP users with a compliant
 administrator; an active theme; PID 1 is the real daemon; service isolation (no nginx
 in the app containers); secrets not leaked via environment; crash-restart; persistence.
+
+### 9.1 ShellCheck and the `#!/bin/hellish` shebang
+
+Every script under `srcs/` and `tests/` starts with `#!/bin/hellish`, and ShellCheck
+only knows `sh`, `bash`, `dash`, `ksh` and `busybox sh`. On an unknown shebang it
+emits SC1008 and then refuses to analyse the file at all, so the fourteen scripts
+were being reported as errors while receiving no checking whatsoever.
+
+The fix is the directive SC1008 itself asks for, on line 2 of each script:
+
+```sh
+#!/bin/hellish
+# shellcheck shell=sh
+```
+
+That declaration is honest rather than a mute button. hellish describes itself as an
+almost-POSIX shell diffed against `bash --posix`, and it was verified before the
+directive was added: a thirty-construct battery covering the parameter expansions,
+arithmetic, `case` globs, heredocs, `trap`, subshells and `read` loops these scripts
+actually use produces byte-identical output under `hellish`, `dash` and
+`bash --posix`; all fourteen scripts also parse identically under `hellish -n` and
+`dash -n`. Under `shell=sh` ShellCheck reports zero errors across them, which means
+the scripts were already POSIX-clean and the directive costs no coverage.
+
+Do **not** put `shell=sh` in a repository-level `.shellcheckrc`. That key overrides a
+real `#!/bin/bash` shebang rather than acting as a fallback, so it would raise false
+SC3044/SC3054 "undefined in POSIX sh" warnings on the bash scripts in the
+`vendor/scripts` submodule. Per-file directives are scoped correctly; a root config
+is not.
+
+If a script ever needs a genuine hellish extension that POSIX lacks, the directive
+becomes a lie and ShellCheck will say so. Fix the script rather than the directive.
 
 **Pre-submission checklist:**
 
