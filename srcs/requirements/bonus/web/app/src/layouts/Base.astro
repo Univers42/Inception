@@ -1,0 +1,38 @@
+---
+import '../styles/global.css';
+import StatusBar from '../components/chrome/StatusBar.astro';
+import Palette from '../components/chrome/Palette.astro';
+import Cheatsheet from '../components/chrome/Cheatsheet.astro';
+interface Props { title: string; description?: string; page: 'room' | 'flights' | 'guestbook' | 'about' | 'none' }
+const { title, description = 'A live pixel-art machine room of one Inception stack.', page } = Astro.props;
+const base = import.meta.env.BASE_URL;
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · lab</title>
+    <meta name="description" content={description} />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0000aa" />
+    <link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml" />
+    <link rel="preload" href={`${base}fonts/DepartureMono-Regular.woff2`} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={`${base}fonts/IBMPlexMono-Regular.woff2`} as="font" type="font/woff2" crossorigin />
+  </head>
+  <body>
+    <a class="skip" href="#main">skip to content</a>
+    <StatusBar page={page} />
+    <main id="main" class="page" tabindex="-1">
+      <slot />
+    </main>
+    <footer class="foot">
+      <span>lab · one Inception stack, drawn live</span>
+      <span><kbd>?</kbd> keys</span>
+      <span><kbd>:</kbd> commands</span>
+      <a href={`${base}about/`}>how it works</a>
+    </footer>
+    <Palette />
+    <Cheatsheet />
+    <script src="../lib/boot.ts"></script>
+  </body>
+</html>

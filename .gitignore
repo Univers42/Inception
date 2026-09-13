@@ -22,6 +22,16 @@ srcs/.env
 # The shell copied into the images by make setup (see srcs/shell/README.md)
 srcs/shell/hellish
 
+# Host-only compose overrides (port remaps for rootless Docker) — see the .example
+srcs/docker-compose.local.yml
+srcs/local.mk
+
+# Lab (bonus web + api): dependency trees and build output never enter the repo;
+# they are produced inside the image build stages.
+node_modules/
+srcs/requirements/bonus/web/app/dist/
+srcs/requirements/bonus/web/app/.astro/
+
 # One person's local overrides — private to whoever pushes them (42ctl seals *.local to
 # the pusher alone); never shared, never committed.
 .env.local

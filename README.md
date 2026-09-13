@@ -2,6 +2,11 @@
 
 # Inception
 
+<p align="center">
+  <img src="docs/media/machine-room.webp" width="640" alt="Pixel-art machine room: six server cabinets, four small daemons, a Redis imp and a MariaDB sea lion reacting to live traffic, with dots running along a cable duct under the floor">
+</p>
+<p align="center"><sub>Two minutes of the lab's machine room, recorded from the running stack. <a href="#the-machine-room">Who's who</a></sub></p>
+
 ## Description
 
 Inception is a system-administration project that builds a small, production-style web
@@ -101,7 +106,8 @@ The certificate is issued by a local CA. Either accept the browser warning once,
 
 ## Bonus
 
-All five permitted bonuses are implemented. Each is a separate container built
+All five permitted bonuses are implemented, plus two free-choice services that
+share one purpose (the lab). Each is a separate container built
 from its own Dockerfile on `alpine:3.23`, on the `inception` network, with a
 healthcheck and `restart: unless-stopped` — the same rules as the mandatory
 services.
@@ -113,6 +119,7 @@ services.
 | **Static website** | `bonus/staticsite/` — hand-written, dependency-free HTML/CSS/JS (no PHP, no framework, no CDN assets), served by its own nginx on port 8090. Fully independent of WordPress and MariaDB. |
 | **Adminer** | `bonus/adminer/` — single-file database front end for MariaDB, pinned to a specific release **and its SHA-256**, served by PHP's built-in server (one process, PID 1 — the same approach as the official Adminer image). |
 | **Scheduled database backups** *(free choice)* | `bonus/dbbackup/` — `mariadb-dump --single-transaction` on a cron schedule into its own named volume, with retention and a restore script. |
+| **The lab: site + API** *(free choice)* | `bonus/web/` and `bonus/api/` — a keyboard-driven static site (Astro, rendered at build time, served by an unprivileged nginx) and a JSON API (Node, MariaDB as the source of truth, Redis for cache, counters and rate limits). Both are reached only through nginx, at `/lab/` and `/api/v1/`. See [DEV_DOC §13](DEV_DOC.md#13-the-lab-web--api-bonus-free-choice). |
 
 ### Why the backup service
 
@@ -138,6 +145,65 @@ It is deliberately more than a `cron` line:
 
 Demonstrable end to end: create a post → `backup.sh` → delete the post →
 `restore.sh` → the post is back.
+
+### Why the lab
+
+The subject asks for infrastructure. The lab makes that infrastructure visible
+and testable from a browser. `https://dlesieur.42.fr/lab/` draws the running
+stack as a pixel-art machine room, and every light moves because the API reported
+a real event: a cache hit, a slow query, a rate-limited write, a flight landing.
+It exercises what the mandatory part only implies:
+
+- **nginx as the single entry point** for three different upstreams (FastCGI, static HTTP, JSON).
+- **Redis used correctly**: cache-aside with per-entity TTLs and explicit invalidation,
+  plus counters and fixed-window rate limits, never as the source of truth.
+- **A least-privilege database user**: `labuser` can reach the `lab` database and nothing else.
+- **Graceful lifecycle**: bounded waits for dependencies, SIGTERM drain, exit 0.
+- **Live traffic, measured rather than invented**: every request between nginx, the API,
+  Redis and MariaDB is drawn as it happens, pushed as Server-Sent Events in 200 ms batches.
+  WordPress's own traffic is counted from php-fpm, Redis and MariaDB's counters, and
+  12 700 requests per second through nginx cost the stream nothing measurable.
+
+`make test-lab` proves each of these against the running stack.
+
+### The machine room
+
+The animation at the top of this page is two minutes of the room at `/lab/`, captured
+frame by frame from its canvas (320×160 pixels, enlarged four times). A script sent the
+stack real traffic: a cache miss, bursts of 4 400 and 10 000 requests per second, a new
+flight, six guestbook posts, and a MariaDB table lock held for 1.2 seconds. Then it
+went quiet. No character moves on a timer: each one reacts to something the API
+reported, or to 20 seconds in which nothing happened.
+
+| Character | Where it lives | What makes it move |
+|---|---|---|
+| **nginx daemon** (green) | in front of nginx | An API answer with a 5xx status: a spark flies off the cabinet and the daemon looks up. |
+| **wordpress daemon** (blue) | in front of wordpress | A quiet room: it walks to the coffee machine at the far right and comes back with a steaming cup. |
+| **web daemon** (cyan) | in front of web | A guestbook post: it walks to the corkboard beside its cabinet and pins a note (the board holds six). |
+| **api daemon** (pink) | in front of api | A cache miss: it runs the errand the API just ran. It goes to Redis, where the key is missing, then on to MariaDB, and comes back to Redis carrying a crate of rows. It runs one errand per 20 s; other misses only blink LEDs. A `429`: it crosses its arms under a `429` bubble. |
+| **Redis imp** (red) | on top of redis | Taps its cabinet on cache hits; naps (`zzz`) when the room is quiet. |
+| **MariaDB sea lion** (grey) | on top of mariadb | Ducks when a query takes over 100 ms, under a puff of smoke, and when the api daemon collects its rows. |
+| **The cat** (black) | the floor | Crosses the room when it is quiet. It is not a service. |
+
+The three quiet-room scenes take turns, one after each 20 seconds without an event.
+Once a minute the bell next to the clock rings for the API's cron, which moves flights
+along, and every daemon that is not busy looks up. If the API stops answering, the
+lights go out and everyone sits down.
+
+The rest of the room is live data too:
+
+- **Cabinet windows** show the API requests served, php-fpm's state, MariaDB's query
+  count, Redis's cache hit rate, the site's HTTP status and the API's uptime. The top
+  LED is health; the four below blink with activity.
+- **Packets on the cable** are flights (`POST /api/v1/flights`). Each one drops onto
+  the cable beside its origin and blinks while boarding. Once en route it sits where its
+  timestamps put it, and its callsign flashes over the destination when it lands. The
+  departures board lists the two newest flights still in the air.
+- **Dots in the duct under the floor** are live traffic from `/api/v1/traffic`: one per
+  request, Redis command or SQL statement, drawn when it happened. Cyan is a cache hit,
+  yellow a miss, magenta a slow query, red an error and white anything else. The wires
+  panel on the left wall gives requests per second, median latency and, under load, how
+  many requests one dot stands for (`x200`).
 
 ---
 
@@ -168,6 +234,8 @@ AI assistance was used for the following tasks:
 - Performance engineering of the build and boot paths (multi-stage builds, BuildKit
   cache mounts, image trimming, healthcheck tuning) with before/after measurements.
 - Generating and maintaining the documentation (this README, USER_DOC, DEV_DOC).
+- Building the lab bonus (`web` + `api`): the API, the Astro site and its canvas engine,
+  the edge routes, `tests/lab.sh`, and a headless-browser check of the keyboard flows.
 
 All generated content was reviewed, tested against the running stack, and adapted to the
 project constraints. The design decisions and their rationale are documented in

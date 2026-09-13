@@ -82,6 +82,10 @@ through `docker-compose.yml`). `make up` does, in order:
 | `make clean` | Remove project containers + volumes + images + host data |
 | `make fclean` | `clean` + `docker system prune -af --volumes` (machine-wide!) |
 | `make re` | Full project rebuild — keeps Docker's build cache and other projects intact |
+| `make test-lab` | Lab (web + api) checks; `LAB_ARGS=--deep` adds SIGTERM drain + late MariaDB |
+| `make snapshot` / `make re-web` | Refresh the site's JSON snapshots from the running API / rebuild only `web` |
+| `make lock` / `make npm-web NPM=…` / `make npm-api NPM=…` | npm inside `nodetool:inception`, never on the host |
+| `make hellish-fetch` | Stage the static hellish release binary (checksum verified) |
 
 ---
 
@@ -519,6 +523,11 @@ make bench                                       # build performance, honest col
 | Change PHP tuning | `conf/www.conf` / `conf/opcache.ini` → rebuild (≤2s) |
 | Bump PHP version | four coupled places: wordpress Dockerfile (packages, paths, healthcheck), `www.conf` COPY path, entrypoint `exec php-fpm84`, Makefile `run_wp` |
 | Add a bonus service | new `srcs/requirements/<svc>/` context + service block in compose (own container, own volume if stateful, extra port allowed for bonus) |
+| Add an API route | `bonus/api/app/server.js` routes table + a handler; a new cache key goes in `cache.js` with its own TTL and its invalidation |
+| Change what the machine room shows | `bonus/web/app/src/components/hero/Daemons.ts` (events, gags), `sprites.ts` (art) → `make re-web` |
+| Add a wire to the machine room | API: `bonus/api/app/traffic.js` (`WIRES`, plus a recorder or a sampler); web: `lib/wires.ts` (same id, a lane where it overlaps no other wire) → rebuild both |
+| Refresh the site's build-time data | `make snapshot && make re-web` |
+| Bump Astro or mysql2 | `package.json` → `make lock` → rebuild |
 
 ---
 
@@ -740,3 +749,376 @@ dialling the old one, answering **502 on every request** until nginx itself is
 restarted. Putting the upstream in a variable forces re-resolution per request.
 Verified by moving wordpress from `172.18.0.9` to `172.18.0.10` without touching
 nginx: the site stayed at 200.
+
+The lab's `/lab/` and `/api/v1/` locations get the same re-resolution from an
+`upstream` block with `server … resolve`, which also keeps connections alive; a
+variable cannot (§13.1).
+
+---
+
+## 13. The lab: `web` + `api` (bonus, free choice)
+
+Two more containers, same rules as every other service: own Dockerfile on
+`alpine:3.23`, own healthcheck, a real daemon as PID 1, no published port.
+nginx is the only way in.
+
+```text
+browser ──TLS :443──► nginx ─┬─ /            fastcgi ► wordpress:9000
+                             ├─ /lab/        http    ► web:8080   (static files)
+                             └─ /api/v1/     http    ► api:3000   (JSON)
+                                                          ├─► mariadb:3306  database `lab`, user `labuser`
+                                                          └─► redis:6379    cache, counters, rate limits
+```
+
+- **`web`** (`srcs/requirements/bonus/web/`). An Astro 5 site rendered to HTML
+  at image build time, served by an unprivileged nginx (`USER nginx`, pid and
+  temp files in `/tmp`). The runtime image has no node, no npm and no
+  `node_modules`: 12.8 MB.
+- **`api`** (`srcs/requirements/bonus/api/`). `node:http` with no framework. The
+  only runtime dependency is `mysql2`; the Redis client is hand-written RESP2
+  over `node:net` (`app/redis.js`). It starts as root to read the secret, then
+  drops to the `api` user (uid 1001). Image 86.2 MB.
+- **The machine room** (`/lab/`). A pixel-art diorama of the stack on one
+  `<canvas>`, driven by `/api/v1/stats`. Its design contract is
+  `srcs/requirements/bonus/web/DESIGN.md`.
+
+### 13.1 Edge routing
+
+`srcs/requirements/nginx/conf/nginx.conf` gains two `^~` prefix locations. `^~`
+matters: it stops the regex locations from matching, so
+`/lab/_astro/x.js` is proxied instead of being looked for under
+`/var/www/html`. `absolute_redirect off` keeps nginx's own redirects
+(`/lab` → `/lab/`) relative, so they survive a remapped port.
+
+Both proxy to an `upstream` block, `lab_web` and `lab_api`, instead of the
+variable WordPress uses (§11.6):
+
+```nginx
+upstream lab_api {
+    zone              lab_api 64k;
+    resolver          127.0.0.11 valid=10s ipv6=off;
+    server            api:3000 resolve;
+    keepalive         32;
+    keepalive_timeout 4s;   # node closes an idle keep-alive socket after 5 s
+}
+```
+
+- **`keepalive`**. nginx reuses connections to the upstream. A variable in
+  `proxy_pass` rules that out, so each request opens a connection and leaves it
+  in TIME_WAIT for a minute. Measured with the variable: 3 300 req/s to
+  `/api/v1/` filled the nginx container's whole local port range (28 267
+  sockets) in 9 s, and every request after that got a 502. With the pool:
+  12 700 req/s for 8 s, no errors, a few hundred sockets.
+- **`resolve`** (nginx 1.27.3 and later; the image runs 1.28.3). The name is
+  re-resolved through Docker's DNS, so `web` or `api` recreated on a new IP is
+  found again without an nginx restart. Verified by recreating both while other
+  containers held their old addresses: 502 for about 5 s, inside the
+  `valid=10s` window the variable also has, then 200.
+- **`keepalive_timeout 4s`** stays under the upstream's own idle timeout, so
+  nginx never picks a connection the other end is closing.
+
+WordPress keeps its variable. The load is not on the FastCGI side, and the
+mandatory location stays as it was.
+
+### 13.2 Configuration
+
+| Variable (`srcs/.env`) | Default | Used by |
+|---|---|---|
+| `API_DB_HOST` / `API_DB_PORT` | `mariadb` / `3306` | api |
+| `API_DB_NAME` | `lab` | api, and the mariadb entrypoint that creates it |
+| `API_DB_USER` | `labuser` | api, and the mariadb entrypoint that creates it |
+| `API_REDIS_HOST` / `API_REDIS_PORT` | `redis` / `6379` | api |
+| `API_FPM_HOST` / `API_FPM_PORT` | `wordpress` / `9000` (defaults in `config.js`, not in `.env`) | api, for the nginx → wordpress wire (§13.5) |
+
+The API's database credential is the Docker secret `api_db_password`
+(`secrets/api_db_password.txt`, generated by `make setup`), mounted into `api`
+and `mariadb` only. On every boot the MariaDB entrypoint creates (or reconciles) the `lab`
+database and a user that can reach nothing else. The API applies
+`app/schema.sql` on every start, and every statement is idempotent.
+
+**Rotating the lab password.** The MariaDB entrypoint reconciles every user
+with the mounted secrets on each boot (`ALTER USER` in its bootstrap SQL), so a
+new secret takes effect on restart. The API's connection pool keeps retrying
+until MariaDB accepts the new value:
+
+```bash
+openssl rand -base64 24 | tr -d '/+=' > secrets/api_db_password.txt
+make restart
+```
+
+**Resetting the lab data** without touching WordPress:
+`DROP DATABASE lab;` as root, then `make restart`. The API recreates the schema
+and the seed flights.
+
+### 13.3 API
+
+| Route | Cache-Control | Notes |
+|---|---|---|
+| `GET /api/v1/` | `no-store` | lists the routes |
+| `GET /api/v1/healthz` | `no-store` | 200 when MariaDB and Redis answer, else 503 with which one failed |
+| `GET /api/v1/flights` | `public, max-age=5` | last 100, cache-aside, `X-Cache: HIT` or `MISS` |
+| `GET /api/v1/flights/:id` | `public, max-age=30` | cache-aside |
+| `POST /api/v1/flights` | `no-store` | 201 + `Location`; rate-limited |
+| `GET /api/v1/guestbook` | `no-store` | last 50, cache-aside |
+| `POST /api/v1/guestbook` | `no-store` | 201; rate-limited |
+| `GET /api/v1/stats` | `no-store` | counters + gauges that drive the machine room |
+| `GET /api/v1/traffic` | `no-store` | Server-Sent Events, the wires (§13.5); 4 streams per address, 64 in all |
+
+**Errors** always have one shape, `{"error":{"code","message","field?"}}`.
+Validation is an allowlist. An unknown field is a 422 `unknown_field` naming it,
+and every other 422 names the field it rejects. A wrong method gets a 405 with
+an `Allow` header, a non-JSON body a 415, and more than 16 KB a 413.
+
+**Cache keys.** The TTL is set per entity, never globally. The `v1` suffix lets
+a shape change ship without a flush.
+
+| Key | TTL | Invalidated by |
+|---|---|---|
+| `lab:flights:all:v1` | 60 s | every POST /flights; a minute tick that moves a flight |
+| `lab:flights:<id>:v1` | 300 s | creating that flight; a minute tick that moves it |
+| `lab:guestbook:recent:v1` | 10 s | every POST /guestbook |
+| `lab:stats:tables:v1` | 5 s | every write |
+| `lab:stats:<counter>` | none | not a cache: the durable copy is `lab.stats` in MariaDB |
+| `lab:rl:<bucket>:<ip>` | the window | fixed window; fails open if Redis is down |
+
+**Counters.** Each event is `INCRBY` in Redis (hot) and a local delta. Every
+2 s the deltas are added to `lab.stats` in MariaDB (durable), then Redis is
+reconciled upward. A Redis restart can make a counter briefly low, never
+permanently.
+
+**Rate limits.** Flights allow 10 per minute per address, the guestbook 5. The
+count happens before validation, so invalid requests use up the window too.
+The address comes from nginx's `X-Real-IP`.
+
+**Minute tick.** The API's own timer runs on every minute boundary. It moves
+flights from boarding to en-route after 30 s and to landed after 3 min, and it
+deletes the list key and each moved flight's key.
+
+**Lifecycle.** The entrypoint waits for MariaDB (at most 90 s) and Redis (at
+most 30 s) with bounded `nc -z` loops, then runs `exec node`. Inside, a pool
+with capped backoff absorbs a database that accepts TCP before it accepts
+logins. On SIGTERM the API stops accepting and closes idle keep-alive sockets.
+It then waits up to 10 s for in-flight requests, flushes the counters, closes
+the pool and Redis, and exits 0. Logs are one JSON object per line on stdout.
+
+### 13.4 Web
+
+- **Build-time content.** Pages that show database rows are rendered from JSON
+  snapshots in `web/app/src/data/` (`flights.json`, `stats.json`,
+  `stack.json`). `make snapshot` refreshes them from the running API through
+  nginx and reads the daemon versions with `docker exec`. `make re-web` then
+  rebuilds and replaces the `web` container only.
+- **A flight created after the build** has no page on disk. nginx serves
+  `404.html`, and its script recognises `/lab/flights/<id>/` and draws that
+  flight from the API.
+- **No inline code.** The CSP is `script-src 'self'; style-src 'self'` with no
+  `unsafe-inline`. Astro is set to `inlineStylesheets: 'never'` and Vite to
+  `assetsInlineLimit: 0`. Meters are text (`█░`), not inline widths.
+- **Caching.** `/lab/_astro/*` is hashed, so it is `immutable` for a year. HTML
+  is `no-cache`. Fonts get 30 days.
+- **What runs in the browser.** No framework and no third party. Each live part
+  is a module script that attaches to markup already on the page. There are no
+  `client:*` islands, because there is no component framework to hydrate.
+
+| Script | Loaded on | Why at load |
+|---|---|---|
+| `lib/boot.ts` (status bar, keymap, palette, poll loop) | every page | the keyboard is the primary input |
+| `hero/Daemons.ts` (machine room) | `/lab/` | its loop runs only while the canvas is visible |
+| `islands/counters.ts`, `flight-table.ts`, `cabinets.ts` | where those tables are | swap numbers when a poll answers |
+| `islands/dispatch.ts`, `guestbook.ts` | forms | send JSON, show the API's own error |
+| `lib/traffic.ts` (the wires stream) | `/lab/`, and `:wires` anywhere | opens only while the room panel is on screen |
+
+Measured JavaScript on `/lab/`: 14.2 KB gzipped, against a 30 KB budget (checked
+by `make test-lab`, L11).
+
+**The engine** (`hero/Daemons.ts`). It runs a fixed 60 Hz simulation inside
+`requestAnimationFrame`, catching up at most one second. The canvas is 320×160
+logical pixels scaled by an integer factor in device pixels, and sprites are
+rasterised once from ASCII art in `hero/sprites.ts`. The loop pauses when the
+canvas leaves the viewport or the tab is hidden. With `prefers-reduced-motion`
+there is no loop at all: one still frame is drawn whenever the data changes.
+Every movement is tied to an API event; `DESIGN.md` §4 has the table.
+
+**Keys.** `Alt+1…4` switch pages, `:` opens the command palette, `/` filters
+(or opens the palette), `?` shows the cheatsheet, `gg`/`G` jump to top or
+bottom, and `j`/`k` scroll. No shortcut fires while an input has focus. The
+palette's commands are `help`, `goto`, `flights`, `flight <id|callsign>`,
+`stats`, `health`, `dispatch <from> <to> [kb] [note]`, `theme`, `q`.
+
+### 13.5 The wires: live traffic on the machine room's cables
+
+The cable duct under the machine room's floor has three lanes, and six wires
+run in them. Every request, command or statement on a wire is a dot. Its
+colour says what happened and its timing is real. Only its speed is slowed
+for the eye: a dot takes half a second to cross, whatever the wire's length. A
+panel on the canvas wall and a table under the canvas give each wire's
+requests per second, median latency, and how many requests one dot stands for.
+
+**How each wire is known.** The API is one end of three wires and sees every
+event on them. It can only count the other three.
+
+| Wire | Source | What it gives |
+|---|---|---|
+| nginx → api | the request handler, on finish: status and cache verdict | every request, with latency |
+| api → redis | `redis.js`, on each reply | every command, with latency |
+| api → mariadb | `db.js`, on each statement, internal ones included (counters, schema, probes) | every statement, with latency |
+| nginx → wordpress | php-fpm `accepted conn`, read over FastCGI (`fpm.js`) once a second | a count per second |
+| wordpress → redis | Redis `INFO stats` once a second, minus the API's own commands | a count per second, with hits and misses |
+| wordpress → mariadb | `SHOW GLOBAL STATUS LIKE 'Questions'` once a second, minus the API's own statements | a count per second |
+
+A sampled wire counts every client that is not the API. In practice that is
+WordPress, plus nginx's healthcheck, which fetches `/` every 10 s: a real page.
+Redis `MONITOR` would give single commands, but it slows Redis down more than
+the traffic it watches.
+
+**Colours.**
+
+| Colour | Means |
+|---|---|
+| cyan | a cache hit: the request was answered from Redis, or a `GET` found its key |
+| yellow | a cache miss: the request went to MariaDB, or a `GET` found nothing. On api → mariadb, the statements that load a miss are yellow too (an `AsyncLocalStorage` around the loader in `cache.js`) |
+| magenta | a statement over 100 ms |
+| red | a 4xx or 5xx answer (429 included), an error reply, a lost command |
+| white | everything else |
+
+**Taking away the API's own share.**
+
+- **Redis.** Replies come back in the order commands were sent on the one
+  connection. `redis.info()` resolves with the client's counters as they stood
+  when Redis ran the `INFO`. Every command in those counters ran before it, and
+  no later one is included. Keyspace hits and misses are counted the way Redis
+  counts them: `GET`, each key of `MGET`, and `TTL`. Writes are not counted.
+- **MariaDB.** `db.own.statements` includes the `SHOW` itself, and so does
+  `Questions`. A statement still in flight on another pool connection can make
+  one sample come out at −1. That −1 is carried into the next sample instead of
+  being clamped to 0, so no phantom request appears and none is lost.
+- **php-fpm.** Two findings, each measured before anything was built on it:
+  1. nginx forwards PHP with `fastcgi_keep_conn on` but has no upstream
+     keepalive pool. It asks php-fpm to keep the connection, then closes it.
+     php-fpm counts the request, then counts again while waiting for a next
+     request on that connection. Measured: a page counts 2 (40 of 40 requests)
+     and a plain FastCGI request such as the API's status read counts 1 (3 of
+     3). Hence `config.fpm.countsPerRequest = 2`. `tests/lab.sh` L26 fails if
+     ten page views stop reading as ten.
+  2. An empty TCP connection counts as well (20 of 20). WordPress's healthcheck
+     was `nc -z 127.0.0.1 9000` every 3 s, which drew a request that never
+     happened on the wire every 6 s. It now reads the listening socket with
+     `netstat`, the same rule as the FTP healthcheck (§11.3). The check is no
+     weaker: the kernel completed nc's handshake from the listen backlog
+     whether php-fpm could serve or not.
+
+  The status page (`pm.status_path = /fpm-status` in `www.conf`) is not
+  reachable through nginx. Every request nginx forwards names a real `.php`
+  file in `SCRIPT_NAME`. L27 checks this.
+
+**Delivery.** `GET /api/v1/traffic` answers with `text/event-stream`.
+
+- **Batches.** One frame every 200 ms carries everything since the last
+  frame, never one message per request. A frame has per-wire counts by
+  outcome, its window, and the p50 over the last second. When a wire had 48
+  events or fewer, each event's offset in the window is included too, so a
+  burst replays with its real spacing. Sampled wires arrive once a second. An
+  idle stream still gets one frame a second, so the page can tell quiet from
+  gone.
+- **No buffering.** `X-Accel-Buffering: no` turns nginx's buffering off for
+  this response only. L24 checks that frames arrive within 1.5 s.
+- **Nothing runs unwatched.** Nothing is recorded or sampled while no stream is
+  open. The page holds its stream only while the machine room panel is on
+  screen and the tab is visible.
+- **Slow clients.** A client that cannot keep up loses frames
+  (`writableNeedDrain`); the API never buffers for it.
+- **Limits.** 4 streams per address (429) and 64 in all (503).
+- **Shutdown.** A stream does not count as in flight for the SIGTERM drain.
+  Shutdown sends `event: bye`, ends every stream, then drains, and
+  `EventSource` reconnects on its own. L22 (`--deep`) checks this.
+
+**In the browser** (`lib/traffic.ts`, `hero/Daemons.ts`). There is one
+`EventSource`, opened and closed by leases: the room holds one while visible,
+and `:wires` holds one for a moment.
+
+- **Rate.** A wire's rate is the sum of the last second of frames, or the last
+  sample for a sampled wire.
+- **Scale.** Past 60 dots on one wire at once, a dot stands for 2, 5, 10 or
+  more requests. The scale steps back down only below half that, so it does
+  not flap.
+- **Colours stay true.** Each outcome carries its own remainder, so colours
+  keep their true proportions, and a rare error still gets its dot, only later.
+- **Reduced motion.** With `prefers-reduced-motion` no dots are drawn, but the
+  panel and the table still update.
+
+**Measured.** 64 keep-alive connections sending GETs through nginx, 8 s per
+phase, on a 42 workstation:
+
+| | nobody watching | the room open in a browser |
+|---|---|---|
+| requests per second through nginx | 12 691 | 12 596 |
+| errors | 0 | 0 |
+| API CPU | 101 % of a core | 94 % of a core |
+| browser frames | — | 60 fps, p95 16.7 ms, worst 16.8 ms |
+| wires table | — | nginx → api 13 579/s at 200 requests per dot; api → redis about three times that (a `GET` and two `INCRBY` per request) |
+
+The throughput difference is within noise. While someone watches, recording is
+an array push per event; while nobody does, it is a boolean test.
+
+### 13.6 Node without Node on the host
+
+No `node` or `npm` ever runs on the host. `nodetool:inception`
+(`srcs/requirements/bonus/nodetool/`) is a CLI image with the same
+`alpine:3.23` + `apk add nodejs npm` as the build stages. Like 42ctl, it is not a
+compose service.
+
+```bash
+make lock                                    # re-resolve both package-lock.json files
+make npm-web NPM="outdated"                  # any npm command, in the web app directory
+make npm-api NPM="install mysql2@3.24.4 --package-lock-only"
+```
+
+### 13.7 A host with rootless Docker and a small home (42 workstations)
+
+Two git-ignored files adapt the stack to such a host. The graded
+`docker-compose.yml` is unchanged, and on the VM neither file exists.
+
+| File | What it changes |
+|---|---|
+| `srcs/docker-compose.local.yml` (from the `.example`) | Rootless Docker cannot bind 443, so ports are remapped (nginx `9443:443`). The volumes are renamed `*_local` and pointed at `$INCEPTION_DATA_DIR`. |
+| `srcs/local.mk` (from the `.example`) | `DATA_DIR=/goinfre/<login>/inception-data` holds the volumes on the local disk. `DOCKER_CONFIG` keeps the Docker CLI's state on sgoinfre instead of the home directory. |
+
+Why `/goinfre` and not sgoinfre for the data: the sgoinfre NFS share rejects the
+`chown` a container's `mysql` user needs (`chown: Invalid argument` under
+rootless Docker), so MariaDB cannot initialise there. With the override,
+`make test` reports S20 (`/etc/hosts`), R02 (port 443) and R13 (volume path) as
+host-only differences. The same tree on the VM passes them.
+
+Reach the site without `/etc/hosts` or sudo:
+
+```bash
+curl -k --resolve dlesieur.42.fr:9443:127.0.0.1 https://dlesieur.42.fr:9443/lab/
+```
+
+### 13.8 Tests
+
+`make test-lab` (`tests/lab.sh`, about 35 s) runs 27 checks through the edge,
+plus 2 more with `LAB_ARGS=--deep`:
+
+| Group | Checks |
+|---|---|
+| containers | both healthy; PID 1 is nginx or node; neither runs as root; neither publishes a port |
+| edge | TLS 1.2 and 1.3 accepted, 1.1 refused; CSP without `unsafe-inline`; no inline code; no third-party origins; immutable assets and no-cache HTML; JS budget |
+| api | healthz; cache MISS then HIT with the key's TTL and a `redis-cli MONITOR` excerpt; POST invalidates; 422 names the field; unknown field; 405 + Allow; durable counters in MariaDB; no secret in `docker history`; 429 + Retry-After |
+| wires | the stream is not buffered by nginx; nginx → api counts 20 GETs with their cache hits; 10 WordPress page views read as 10 on nginx → wordpress; `/fpm-status` is not public; a fifth stream from one address gets 429 |
+| `--deep` | `docker stop` with a stream open → the stream gets `bye`, the API logs `shutdown: complete` and exits 0 at once; the API started before MariaDB waits, then becomes healthy |
+
+It waits out a nearly spent rate-limit window, so it can be rerun right away.
+
+### 13.9 Deviations from the brief
+
+- **Sprites** are ASCII art rasterised at run time, not a `sprites.png`. They
+  can be diffed and reviewed, and no image asset is needed.
+- **No `:cache flush`.** An anonymous visitor must not be able to empty Redis.
+- **`GET /api/v1/guestbook`** was added so the page can list entries before
+  posting.
+- **View transitions** use cross-document CSS (`@view-transition`), which adds no
+  JavaScript, instead of Astro's client router.
+- **Astro is pinned to 5.18.2** as the brief asks, although newer majors exist.
+  apk packages are unpinned, like every other image here, because Alpine drops
+  superseded package versions from its mirrors.

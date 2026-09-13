@@ -1,0 +1,16 @@
+---
+import Base from '../../layouts/Base.astro';
+import Panel from '../../components/chrome/Panel.astro';
+import Guestbook from '../../components/islands/Guestbook.astro';
+---
+<Base title="guestbook" page="guestbook" description="Leave a line in the machine room's guestbook.">
+  <header class="intro">
+    <h1>guestbook</h1>
+    <p>Each entry is a row in <code>lab.guestbook</code>. The API validates every field and says which one it rejected,
+      rate-limits writes per address in Redis, and a new note appears on the corkboard in the machine room.</p>
+  </header>
+  <Panel live label="guestbook">
+    <Fragment slot="title">guestbook<span class="sep">═</span>POST /api/v1/guestbook<span class="sep">═</span>refresh 10s</Fragment>
+    <Guestbook />
+  </Panel>
+</Base>

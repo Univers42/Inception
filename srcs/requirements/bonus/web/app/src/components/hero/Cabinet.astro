@@ -1,0 +1,12 @@
+---
+// One row of the cabinets panel. The LED is set by the page script from the
+// latest probe; the version is the one the snapshot recorded.
+interface Props { name: string; version: string; port: string; role: string }
+const { name, version, port, role } = Astro.props;
+---
+<tr data-cab={name}>
+  <td><span class="led" data-led></span><span class="mono">{name}</span></td>
+  <td class="mono attn">{version}</td>
+  <td class="mono muted hide-narrow">{port}</td>
+  <td class="wrap" data-note>{role}</td>
+</tr>

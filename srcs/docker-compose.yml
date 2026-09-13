@@ -81,10 +81,14 @@ services:
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER:     ${MYSQL_USER}
+      API_DB_NAME:    ${API_DB_NAME}
+      API_DB_USER:    ${API_DB_USER}
     secrets:
       - source: db_password
         mode: 0400
       - source: db_root_password
+        mode: 0400
+      - source: api_db_password
         mode: 0400
 
   staticsite:
@@ -180,6 +184,49 @@ services:
       - source: db_password
         mode: 0400
 
+  # ── Lab: the animated static site (/lab/) and its API (/api/v1/) ────────────
+  # Both are reachable only through nginx. Neither publishes a port, neither
+  # mounts a volume: the site is bytes baked into the image at build time and
+  # the API keeps its state in mariadb (truth) and redis (cache).
+  web:
+    build:
+      context: ./requirements/bonus/web
+      dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
+    image: web:inception
+    container_name: web
+    networks:
+      - inception
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./requirements/bonus/api
+      dockerfile: Dockerfile
+      additional_contexts:
+        shell: ./shell
+    image: api:inception
+    container_name: api
+    networks:
+      - inception
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      API_DB_HOST:    ${API_DB_HOST}
+      API_DB_PORT:    ${API_DB_PORT}
+      API_DB_NAME:    ${API_DB_NAME}
+      API_DB_USER:    ${API_DB_USER}
+      API_REDIS_HOST: ${API_REDIS_HOST}
+      API_REDIS_PORT: ${API_REDIS_PORT}
+    secrets:
+      - source: api_db_password
+        mode: 0400
+
 volumes:
   db_data:
     driver: local
@@ -218,3 +265,5 @@ secrets:
     file: ../secrets/server.key
   ftp_password:
     file: ../secrets/ftp_password.txt
+  api_db_password:
+    file: ../secrets/api_db_password.txt

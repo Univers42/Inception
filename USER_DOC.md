@@ -16,12 +16,12 @@ If you only ever read one file to use this project, read this one.
 Inception deploys a complete WordPress website served over HTTPS, entirely inside
 Docker containers, built from scratch by this project (no ready-made images).
 
-**Eight containers run**, not three: the three the subject makes mandatory, plus five
+**Ten containers run**, not three: the three the subject makes mandatory, plus seven
 bonus ones. Each is one container running exactly one long-lived program as PID 1 —
 that is what makes it a *service* here, and the distinction matters, because two things
 in this project look like services and are not (see "What is **not** a service" below).
 
-### The eight services
+### The ten services
 
 | Service | Daemon running as PID 1 | Published to the host | Purpose |
 |---|---|---|---|
@@ -33,6 +33,8 @@ in this project look like services and are not (see "What is **not** a service" 
 | **ftp** *(bonus)* | `pure-ftpd` | **21**, plus **21000–21010** for passive data | File access into the WordPress site files |
 | **adminer** *(bonus)* | `php -S 0.0.0.0:8080` | **8080** (plain HTTP) | A web UI for browsing and editing the database |
 | **dbbackup** *(bonus)* | `crond -f -l 8 -L /dev/stdout` | — (no port at all) | Scheduled database dumps; the daemon is cron itself |
+| **web** *(bonus)* | `nginx -g "daemon off;"` (as user `nginx`) | — (8080, network-internal) | The lab site: static pages served at `https://dlesieur.42.fr/lab/` through nginx |
+| **api** *(bonus)* | `node /app/server.js` (as user `api`) | — (3000, network-internal) | The lab API: JSON at `https://dlesieur.42.fr/api/v1/`, backed by MariaDB and Redis |
 
 Only the four ports in bold are reachable from outside. Everything else talks over a
 private Docker bridge network named `inception`, where containers find each other by
@@ -53,13 +55,13 @@ is a container with a daemon in it; a website is content that some service serve
 
 ### Policies applied to every service
 
-These are set identically across all eight, so there is one behaviour to remember rather
-than eight:
+These are set identically across all ten, so there is one behaviour to remember rather
+than ten:
 
 | Policy | Value | What it means for you |
 |---|---|---|
 | Restart | `restart: unless-stopped` | A crashed container comes back by itself, and stays down after `make stop` until you ask for it |
-| Health | a `HEALTHCHECK` in every one of the eight Dockerfiles | `make status` reports real health, not just "the process exists" |
+| Health | a `HEALTHCHECK` in every one of the ten Dockerfiles | `make status` reports real health, not just "the process exists" |
 | Network | one bridge network, `inception` | No container is on the host's network |
 | PID 1 | the daemon itself, via `exec` | No `tail -f`, no `sleep infinity`, no supervisor — stopping the container signals the real program |
 | Secrets | Docker secrets at `/run/secrets/*`, mode `0400` | No password is ever passed as an environment variable |
@@ -71,7 +73,8 @@ dependency to report *healthy* before starting the dependent:
 - **wordpress** waits for mariadb and redis
 - **adminer** waits for mariadb
 - **dbbackup** waits for mariadb and wordpress
-- **mariadb**, **redis**, **staticsite** and **ftp** wait for nothing — they have no dependencies
+- **api** waits for mariadb and redis (and its entrypoint waits again, with a time limit)
+- **mariadb**, **redis**, **staticsite**, **ftp** and **web** wait for nothing — they have no dependencies
 
 See §5c for the static site and §10 for the other bonus services.
 
@@ -122,8 +125,8 @@ make
 1. **`setup`** — creates data directories, generates `srcs/.env`, generates random
    passwords under `secrets/`, adds an entry to `/etc/hosts`, and issues a local TLS
    certificate. All of this is described in detail in §4 below.
-2. **Build & start** — builds the eight Docker images from their Dockerfiles and
-   starts the eight containers.
+2. **Build & start** — builds the ten Docker images from their Dockerfiles and
+   starts the ten containers.
 
 The very first run takes roughly 15–30 seconds (downloading packages, building
 images, initialising the database and WordPress). Expect one `sudo` password prompt
@@ -137,27 +140,29 @@ during step 1 (to add a line to `/etc/hosts`) — **this only happens on the fir
 > echo "127.0.0.1 dlesieur.42.fr" | sudo tee -a /etc/hosts
 > ```
 
-When it finishes, check that all eight containers are healthy:
+When it finishes, check that all ten containers are healthy:
 
 ```bash
 docker compose -f srcs/docker-compose.yml ps
 ```
 
-Expected output — all eight `Up ... (healthy)`, since every image carries a healthcheck:
+Expected output — all ten `Up ... (healthy)`, since every image carries a healthcheck:
 
 ```text
 NAME         STATUS               PORTS
 adminer      Up (healthy)         0.0.0.0:8080->8080/tcp
+api          Up (healthy)         3000/tcp
 dbbackup     Up (healthy)
 ftp          Up (healthy)         0.0.0.0:21->21/tcp, 0.0.0.0:21000-21010->21000-21010/tcp
 mariadb      Up (healthy)         3306/tcp
 nginx        Up (healthy)         0.0.0.0:443->443/tcp
 redis        Up (healthy)         6379/tcp
 staticsite   Up (healthy)         0.0.0.0:8090->8090/tcp
+web          Up (healthy)         8080/tcp
 wordpress    Up (healthy)         9000/tcp
 ```
 
-A port shown without an `0.0.0.0:...->` prefix (mariadb, redis, wordpress) is
+A port shown without an `0.0.0.0:...->` prefix (mariadb, redis, wordpress, web, api) is
 network-internal — the container listens on it, but the host cannot reach it. That is
 deliberate, not a missing rule.
 
@@ -347,7 +352,7 @@ static files. If you're viewing from a VM host (§5b), the same port-forwarding 
 ## 6. Checking that the services are running correctly
 
 ```bash
-make status     # container status — all eight should show "Up (healthy)"
+make status     # container status — all ten should show "Up (healthy)"
 make logs       # live logs of all services (Ctrl+C to stop watching)
 make test       # runs the full automated compliance/health check suite
 ```
@@ -429,7 +434,7 @@ For architecture details, performance notes, and a defense/Q&A style deep dive, 
 
 ## 10. Bonus services
 
-Five extra services run alongside the website. All are started and stopped by
+Seven extra services run alongside the website. All are started and stopped by
 the same `make` commands — there is nothing separate to launch.
 
 | Service | How you reach it | Credentials |
@@ -439,6 +444,8 @@ the same `make` commands — there is nothing separate to launch.
 | **FTP** | `ftp://127.0.0.1:21` | user from `srcs/.env` (`FTP_USER`); for the password, read the file `secrets/ftp_password.txt` |
 | **Redis cache** | not exposed — it has no published port on purpose | none |
 | **Database backups** | files in `/home/dlesieur/data/backups` | none |
+| **The machine room** (lab site) | `https://dlesieur.42.fr/lab/` | none |
+| **Lab API** | `https://dlesieur.42.fr/api/v1/` (try `/api/v1/healthz`) | none to read; writes are rate-limited |
 
 **FTP must be used in passive mode.** Most clients (FileZilla, `lftp`, `curl`)
 do this by default. Active mode cannot work through the VM's NAT.
@@ -478,3 +485,62 @@ docker exec wordpress wp --allow-root --path=/var/www/html redis status
 Look for `Status: Connected` and `Drop-in: Valid`. `docker exec redis
 redis-cli dbsize` shows the number of cached entries, which climbs as pages are
 visited.
+
+### The machine room (`/lab/`)
+
+Open `https://dlesieur.42.fr/lab/`. The picture at the top is the running
+stack. Each cabinet is a container, and the lights and little figures react to
+what the API reports every five seconds. Below it, three tables carry the same
+information as text: container health, the counters, and the latest flights.
+
+The site is driven from the keyboard:
+
+| Key | Does |
+|---|---|
+| `Alt+1` … `Alt+4` | machine room, flights, guestbook, about |
+| `:` | command palette (`:help` lists the commands) |
+| `?` | the list of keys and commands |
+| `/` | filter the flights table |
+| `gg` / `G` | top / bottom of the page |
+| `Esc` | close, or leave a text field |
+
+To send a packet between two containers, type `:dispatch nginx api` in the
+palette, or click a cabinet. It boards, flies along the cable for about three
+minutes, and lands.
+
+**The wires.** Under the floor, a cable duct carries a dot for every request
+on six links: nginx → api, api → redis, api → mariadb, nginx → wordpress,
+wordpress → redis and wordpress → mariadb. The colour says what happened:
+
+| Colour | Means |
+|---|---|
+| cyan | cache hit |
+| yellow | cache miss that went to MariaDB |
+| magenta | query over 100 ms |
+| red | error or 429 |
+| white | anything else |
+
+The panel on the wall and the table under the picture give requests per
+second, median latency, and how many requests one dot stands for once a wire
+gets busy. Type `:wires` in the palette for the same numbers from any page.
+Open a few WordPress pages in another tab and watch the nginx → wordpress
+wire.
+
+Check that the lab works:
+
+```bash
+make test-lab                                   # 27 checks, about 35 seconds
+curl -k https://dlesieur.42.fr/api/v1/healthz   # {"ok":true,"mariadb":{"ok":true,…},"redis":{"ok":true,…}}
+```
+
+**On a school workstation without sudo** (rootless Docker, small home
+directory), the nginx port is 9443 and the domain is not in `/etc/hosts`. Let
+curl resolve the name instead:
+
+```bash
+curl -k --resolve dlesieur.42.fr:9443:127.0.0.1 https://dlesieur.42.fr:9443/lab/
+```
+
+A browser needs the same mapping, for example Chrome started with
+`--host-resolver-rules="MAP dlesieur.42.fr:9443 127.0.0.1:9443"`. How that
+host is set up is described in DEV_DOC §13.7.

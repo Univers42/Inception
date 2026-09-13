@@ -1,0 +1,47 @@
+---
+import Base from '../layouts/Base.astro';
+import Panel from '../components/chrome/Panel.astro';
+import Floor from '../components/hero/Floor.astro';
+import Cabinet from '../components/hero/Cabinet.astro';
+import Counters from '../components/islands/Counters.astro';
+import FlightTable from '../components/islands/FlightTable.astro';
+import stack from '../data/stack.json';
+const base = import.meta.env.BASE_URL;
+const cabinets = [
+  { name: 'nginx', version: stack.nginx, port: '443', role: 'edge · TLS 1.2/1.3 · the only published port' },
+  { name: 'wordpress', version: `php ${stack.php}`, port: '9000', role: `php-fpm · WordPress ${stack.wordpress}` },
+  { name: 'mariadb', version: stack.mariadb, port: '3306', role: 'database · wordpress + lab schemas' },
+  { name: 'redis', version: stack.redis, port: '6379', role: 'cache · object cache + API cache' },
+  { name: 'web', version: `nginx ${stack.nginx}`, port: '8080', role: 'static site · this page' },
+  { name: 'api', version: `node ${stack.node}`, port: '3000', role: 'json api · /api/v1/' },
+];
+---
+<Base title="machine room" page="room">
+  <header class="intro">
+    <h1>the machine room</h1>
+    <p>One Inception stack, drawn as it runs. Every cabinet is a container on the same private network; every light and every
+      little daemon moves because <code>/api/v1/stats</code> said something changed in the last five seconds, and every dot on the
+      wires under the floor is a real request, pushed by <code>/api/v1/traffic</code> five times a second. Press <kbd>?</kbd> for
+      keys, <kbd>:</kbd> for commands, or click a cabinet to dispatch a packet from it.</p>
+  </header>
+
+  <Floor />
+
+  <div class="cols">
+    <Panel live label="cabinets">
+      <Fragment slot="title">cabinets<span class="sep">═</span><span class="v">6</span> containers<span class="sep">═</span>alpine <span class="v">{stack.alpine}</span></Fragment>
+      <div class="tbl"><table class="cabs">
+        <caption class="skip">containers, versions, ports and live state</caption>
+        <thead><tr><th scope="col">cabinet</th><th scope="col">version</th><th scope="col" class="hide-narrow">port</th><th scope="col">state</th></tr></thead>
+        <tbody>{cabinets.map((c) => <Cabinet {...c} />)}</tbody>
+      </table></div>
+      <p class="muted mono small">probed <span id="cab-probe">—</span> · every 30 s</p>
+    </Panel>
+    <Counters />
+    <Panel live label="departures" class="span">
+      <Fragment slot="title">departures<span class="sep">═</span>last <span class="v">6</span><span class="sep">═</span><a href={`${base}flights/`}>full board <kbd>2</kbd></a></Fragment>
+      <FlightTable limit={6} caption="the six most recent flights" />
+    </Panel>
+  </div>
+</Base>
+<script src="../components/islands/cabinets.ts"></script>

@@ -1,0 +1,114 @@
+---
+import Base from '../../layouts/Base.astro';
+import Panel from '../../components/chrome/Panel.astro';
+import stack from '../../data/stack.json';
+import stats from '../../data/stats.json';
+const built = new Date().toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+const s = stats as any;
+// architecture diagram geometry (one place, so boxes and wires agree)
+const box = { browser: [16, 96], nginx: [150, 96], wordpress: [300, 24], web: [300, 96], api: [300, 168], mariadb: [460, 60], redis: [460, 150] } as Record<string, [number, number]>;
+const BW = 112, BH = 36;
+const mid = (k: string) => [box[k][0] + BW / 2, box[k][1] + BH / 2];
+const L = (k: string) => [box[k][0], box[k][1] + BH / 2];
+const R = (k: string) => [box[k][0] + BW, box[k][1] + BH / 2];
+const wire = (a: number[], b: number[]) => { const xm = Math.round((a[0] + b[0]) / 2); return `${a[0]},${a[1]} ${xm},${a[1]} ${xm},${b[1]} ${b[0]},${b[1]}`; };
+const wires = [
+  { p: wire(R('browser'), L('nginx')), label: 'https :443' },
+  { p: wire(R('nginx'), L('wordpress')), label: 'fastcgi :9000' },
+  { p: wire(R('nginx'), L('web')), label: 'http :8080' },
+  { p: wire(R('nginx'), L('api')), label: 'http :3000' },
+  { p: wire(R('wordpress'), L('mariadb')), label: '' },
+  { p: wire(R('api'), L('mariadb')), label: '' },
+  { p: wire(R('wordpress'), L('redis')), label: '' },
+  { p: wire(R('api'), L('redis')), label: '' },
+];
+const ttl = [
+  ['lab:flights:all:v1', 'the flights list', '60 s', 'deleted on every POST /flights and on a minute tick that moves a flight'],
+  ['lab:flights:<id>:v1', 'one flight', '300 s', 'deleted with the list when that flight is created or moves'],
+  ['lab:guestbook:recent:v1', 'last 50 entries', '10 s', 'deleted on every POST /guestbook'],
+  ['lab:stats:tables:v1', 'row counts for /stats', '5 s', 'deleted on every write'],
+  ['lab:stats:<counter>', 'hot counter (INCRBY)', 'none', 'not a cache: MariaDB keeps the durable copy, flushed every 2 s'],
+  ['lab:rl:<bucket>:<ip>', 'rate-limit window', 'window', 'fixed window; if Redis is down, writes are allowed (fail open)'],
+];
+---
+<Base title="how it works" page="about" description="How the machine room is built: containers, cache, counters, and what runs in the browser.">
+  <header class="intro">
+    <h1>how it works</h1>
+    <p>Six containers, each built from its own Dockerfile on Alpine {stack.alpine}, on one bridge network. Only nginx publishes a
+      port. This page was rendered at build time ({built}); the numbers in the room are live.</p>
+  </header>
+
+  <Panel label="architecture">
+    <Fragment slot="title">architecture<span class="sep">─</span>one published port<span class="sep">─</span><span class="v">443</span></Fragment>
+    <div class="tbl">
+      <svg class="draw arch" viewBox="0 0 600 220" width="600" height="220" role="img"
+        aria-label="The browser reaches nginx on port 443. nginx forwards to wordpress over FastCGI on 9000, to the static site on 8080 and to the api on 3000. wordpress and api both use mariadb and redis.">
+        {wires.map((w) => <polyline points={w.p} fill="none" stroke="#00aaaa" stroke-width="2" pathLength="1" />)}
+        {Object.entries(box).map(([k, [x, y]]) => (
+          <g>
+            <rect x={x} y={y} width={BW} height={BH} fill="#000000" stroke={k === 'nginx' ? '#ffff55' : '#55ffff'} stroke-width="2" />
+            <text x={x + BW / 2} y={y + 23} text-anchor="middle" fill={k === 'nginx' ? '#ffff55' : '#ffffff'} font-size="13" font-family="Departure Mono, monospace">{k}</text>
+          </g>
+        ))}
+        <text x="84" y="88" fill="#aaaaaa" font-size="10" font-family="Departure Mono, monospace">TLS 1.2 / 1.3</text>
+      </svg>
+    </div>
+  </Panel>
+
+  <div class="cols">
+    <Panel label="request path">
+      <Fragment slot="title">a request<span class="sep">─</span>GET /api/v1/flights</Fragment>
+      <ol class="steps">
+        <li>nginx terminates TLS and proxies <code>/api/v1/</code> to <code>api:3000</code>, re-resolving the name through Docker's DNS on every request.</li>
+        <li>The API checks Redis for <code>lab:flights:all:v1</code>. A hit answers with <code>X-Cache: HIT</code>.</li>
+        <li>A miss runs one SELECT on MariaDB, stores the JSON for 60 s and answers <code>X-Cache: MISS</code>.</li>
+        <li>Every request bumps <code>http_requests</code> in Redis; every two seconds the API adds its deltas to the <code>lab.stats</code> table.</li>
+      </ol>
+    </Panel>
+    <Panel label="what runs in the browser">
+      <Fragment slot="title">in the browser<span class="sep">─</span>no framework<span class="sep">─</span>no third party</Fragment>
+      <p>Pages are HTML files. The site ships no UI framework, so there are no <code>client:*</code> islands; each live part is a
+        small module script that attaches to markup already on the page. What hydrates, and why:</p>
+      <ul class="steps">
+        <li><b>status bar, keys, palette</b> — on every page, at load: the keyboard is the primary input.</li>
+        <li><b>machine room</b> — at load, but its loop runs only while the canvas is on screen.</li>
+        <li><b>counters, departures, cabinets</b> — attach to the build-time tables and replace numbers when a poll answers.</li>
+        <li><b>forms</b> — dispatch and guestbook send JSON and show the API's own error.</li>
+      </ul>
+    </Panel>
+  </div>
+
+  <Panel label="cache keys">
+    <Fragment slot="title">redis keys<span class="sep">─</span>ttl per entity, never global</Fragment>
+    <div class="tbl"><table>
+      <caption class="skip">cache keys, what they hold, TTL and invalidation</caption>
+      <thead><tr><th scope="col">key</th><th scope="col">holds</th><th scope="col">ttl</th><th scope="col">invalidated</th></tr></thead>
+      <tbody>{ttl.map(([k, h, t, i]) => <tr><td class="mono">{k}</td><td class="wrap">{h}</td><td class="mono attn">{t}</td><td class="wrap">{i}</td></tr>)}</tbody>
+    </table></div>
+  </Panel>
+
+  <div class="cols">
+    <Panel label="versions">
+      <Fragment slot="title">versions<span class="sep">─</span>recorded {stack.snapshot_at.slice(0, 10)}</Fragment>
+      <dl class="kv">
+        <dt>alpine</dt><dd class="mono">{stack.alpine}</dd>
+        <dt>nginx</dt><dd class="mono">{stack.nginx}</dd>
+        <dt>php-fpm</dt><dd class="mono">{stack.php}</dd>
+        <dt>wordpress</dt><dd class="mono">{stack.wordpress}</dd>
+        <dt>mariadb</dt><dd class="mono">{stack.mariadb}</dd>
+        <dt>redis</dt><dd class="mono">{stack.redis}</dd>
+        <dt>node</dt><dd class="mono">{stack.node}</dd>
+        <dt>snapshot</dt><dd class="mono">{s.ts.slice(0, 19)}Z · {s.counters.http_requests} requests</dd>
+      </dl>
+    </Panel>
+    <Panel label="credits">
+      <Fragment slot="title">credits</Fragment>
+      <ul class="steps">
+        <li>Departure Mono by Helena Zhang, SIL Open Font License 1.1 — <a href="/lab/fonts/LICENSE-DepartureMono.txt">license</a>.</li>
+        <li>IBM Plex Mono by IBM, SIL Open Font License 1.1 — <a href="/lab/fonts/LICENSE-IBMPlexMono.txt">license</a>.</li>
+        <li>Built with Astro, rendered to static files at image build time; served by nginx.</li>
+        <li>The sixteen colours are the IBM VGA palette. The sprites are drawn as text in the repository.</li>
+      </ul>
+    </Panel>
+  </div>
+</Base>

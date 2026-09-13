@@ -64,8 +64,14 @@ WORKDIR /var/www/html
 
 EXPOSE 9000
 
+# Observe the listening socket instead of connecting to it (same rule as the
+# FTP healthcheck). php-fpm counts every connection it accepts, an empty one
+# included, and the lab's traffic view reads that counter: an nc -z every 3 s
+# drew a request that never happened on the nginx → wordpress wire. It is no
+# weaker a check: the kernel completes nc's handshake from the listen backlog
+# whether or not php-fpm is able to serve.
 HEALTHCHECK --interval=3s --timeout=3s --start-period=60s --start-interval=500ms --retries=10 \
-    CMD ["nc", "-z", "127.0.0.1", "9000"]
+    CMD ["hellish", "-c", "netstat -ltn 2>/dev/null | grep -q ':9000 ' && pgrep php-fpm84 >/dev/null"]
 
 COPY --from=shell / /usr/local/lib/inception-shell/
 RUN [ -x /usr/local/lib/inception-shell/hellish ] \

@@ -3,11 +3,22 @@ export COMPOSE_DOCKER_CLI_BUILD = 1
 export COMPOSE_BAKE             = true
 export BUILDX_NO_DEFAULT_ATTESTATIONS = 1
 
-COMPOSE  = docker compose -f srcs/docker-compose.yml
+# srcs/docker-compose.local.yml (git-ignored, see the .example) carries host-only
+# port remaps for a rootless Docker daemon that cannot bind 443. When it is
+# absent — the VM, the evaluation machine — nothing changes.
+COMPOSE_LOCAL = $(wildcard srcs/docker-compose.local.yml)
+COMPOSE  = docker compose -f srcs/docker-compose.yml $(if $(COMPOSE_LOCAL),-f $(COMPOSE_LOCAL))
 
 ifeq ($(origin SCRIPT_SH),undefined)
+# The five system paths are where a packaged hellish lands. A hellish built or
+# downloaded by hand lands in the user's own bin — on a 42 machine there is no
+# root, so that is the ONLY place it can be. `command -v` is asked last, so a
+# system install still wins; the probe still decides: a candidate is used only
+# if it prints INC_SH=<path> for itself.
 _inc_cands := $(wildcard /bin/hellish /usr/bin/hellish /usr/local/bin/hellish \
-	/bin/hellish.real /usr/bin/hellish.real)
+	/bin/hellish.real /usr/bin/hellish.real) \
+	$(shell command -v hellish 2>/dev/null) \
+	$(shell command -v hellish.real 2>/dev/null)
 _inc_try    = $(filter INC_SH=%,$(shell $(1) tests/launcher_probe.sh 2>/dev/null))
 _inc_found := $(firstword $(foreach c,$(_inc_cands),$(call _inc_try,$(c))))
 SCRIPT_SH  := $(strip $(patsubst INC_SH=%,%,$(_inc_found)))
@@ -33,14 +44,39 @@ SHELL := $(SCRIPT_SH)
 
 INCEPTION_SHELL ?= $(SCRIPT_SH)
 export INCEPTION_SHELL
-DATA_DIR = /home/dlesieur/data
+# Host-only settings (git-ignored, see srcs/local.mk.example): where the volumes
+# live and where the Docker CLI keeps its state on a machine whose home is too
+# small. Absent on the VM and the evaluation machine, where nothing changes.
+-include srcs/local.mk
+DATA_DIR ?= /home/dlesieur/data
+export INCEPTION_DATA_DIR := $(DATA_DIR)
+ifneq ($(strip $(DOCKER_CONFIG)),)
+export DOCKER_CONFIG
+$(shell mkdir -p $(DOCKER_CONFIG))
+endif
 LOGIN    = dlesieur
+
+# The images inside the containers are Alpine (musl), so the hellish linked in
+# as /bin/sh must be static. The release channel publishes one; `hellish-fetch`
+# stages it with its checksum verified.
+HELLISH_VERSION ?= v2.10.1
+HELLISH_URL      = https://github.com/Univers42/hellish/releases/download/$(HELLISH_VERSION)
+
+# Throwaway image used only to wipe $(DATA_DIR) without sudo (same pin as every
+# Dockerfile: it is the base OS, the one image the subject allows to be pulled).
+BASE_IMAGE = alpine:3.23
 
 SECRETS  = secrets
 CA_KEY   = $(SECRETS)/ca.key
 CA_CRT   = $(SECRETS)/ca.crt
 SRV_KEY  = $(SECRETS)/server.key
 SRV_CRT  = $(SECRETS)/server.crt
+
+# HTTPS port as seen from this host: 443 by default, the remapped port when the
+# local override is in use. Used by targets that talk to the running stack.
+HTTPS_PORT ?= $(if $(COMPOSE_LOCAL),$(shell sed -n 's/^[[:space:]]*- *"\([0-9]*\):443".*/\1/p' $(COMPOSE_LOCAL) | head -1),443)
+SITE_CURL   = curl -ks --resolve $(LOGIN).42.fr:$(HTTPS_PORT):127.0.0.1
+SITE_URL    = https://$(LOGIN).42.fr$(if $(filter-out 443,$(HTTPS_PORT)),:$(HTTPS_PORT))
 
 all: up
 
@@ -50,13 +86,17 @@ up: setup
 build: setup
 	$(COMPOSE) build
 
+# Rebuild every image from scratch, ignoring the layer cache.
+rebuild: setup
+	$(COMPOSE) build --no-cache
+
 setup:
 	@mkdir -p $(DATA_DIR)/mariadb $(DATA_DIR)/wordpress $(DATA_DIR)/backups $(SECRETS)
 	@if [ ! -f srcs/.env ]; then \
 		sed 's/login\.42\.fr/$(LOGIN).42.fr/g' .env.example > srcs/.env; \
 		echo "[setup] Generated srcs/.env — edit it to customise"; \
 	fi
-	@for f in db_password db_root_password ftp_password; do \
+	@for f in db_password db_root_password ftp_password api_db_password; do \
 		if [ ! -f $(SECRETS)/$$f.txt ]; then \
 			openssl rand -base64 24 | tr -d '/+=' > $(SECRETS)/$$f.txt; \
 			chmod 600 $(SECRETS)/$$f.txt; \
@@ -70,23 +110,53 @@ setup:
 		echo "[setup] Generated random $(SECRETS)/credentials.txt (line 1 = WP admin, line 2 = editor)"; \
 	fi
 	@if ! grep -q "$(LOGIN).42.fr" /etc/hosts 2>/dev/null; then \
-		echo "127.0.0.1 $(LOGIN).42.fr" | sudo tee -a /etc/hosts > /dev/null; \
+		if sudo -n true 2>/dev/null; then \
+			echo "127.0.0.1 $(LOGIN).42.fr" | sudo tee -a /etc/hosts > /dev/null; \
+		else \
+			echo "[setup] WARN: $(LOGIN).42.fr is not in /etc/hosts and sudo is not available."; \
+			echo "[setup]       Add it yourself:  echo '127.0.0.1 $(LOGIN).42.fr' | sudo tee -a /etc/hosts"; \
+			echo "[setup]       Meanwhile: curl -k --resolve $(LOGIN).42.fr:$(HTTPS_PORT):127.0.0.1 $(SITE_URL)/"; \
+		fi; \
 	fi
 	@mkdir -p srcs/shell; \
 	rm -f srcs/shell/sh; \
 	src=$$(readlink -f "$(INCEPTION_SHELL)"); \
-	if ! ldd "$$src" 2>&1 | grep -qiE 'not a (valid )?dynamic|statically'; then \
-		echo "[setup] ERROR: $$src is dynamically linked."                  >&2; \
-		echo "[setup] The images are Alpine (musl); a glibc-linked hellish"  >&2; \
-		echo "[setup] cannot run in them. Build hellish statically, or set"  >&2; \
-		echo "[setup]   make INCEPTION_SHELL=/path/to/static/hellish"        >&2; \
+	is_static() { ldd "$$1" 2>&1 | grep -qiE 'not a (valid )?dynamic|statically'; }; \
+	if is_static "$$src"; then \
+		if ! cmp -s "$$src" srcs/shell/hellish 2>/dev/null; then \
+			cp -f "$$src" srcs/shell/hellish && chmod 755 srcs/shell/hellish; \
+			echo "[setup] hellish staged for the images from $$src"; \
+		fi; \
+	elif [ -x srcs/shell/hellish ] && is_static srcs/shell/hellish; then \
+		echo "[setup] $$src is dynamically linked; keeping the static hellish already staged in srcs/shell/"; \
+	else \
+		echo "[setup] ERROR: $$src is dynamically linked and no static hellish is staged." >&2; \
+		echo "[setup] The images are Alpine (musl); a glibc-linked hellish cannot run in them." >&2; \
+		echo "[setup] Run 'make hellish-fetch' (static release binary, checksum verified), or:" >&2; \
+		echo "[setup]   make INCEPTION_SHELL=/path/to/static/hellish"                          >&2; \
 		exit 1; \
-	fi; \
-	if ! cmp -s "$$src" srcs/shell/hellish 2>/dev/null; then \
-		cp -f "$$src" srcs/shell/hellish && chmod 755 srcs/shell/hellish; \
-		echo "[setup] hellish staged for the images from $$src"; \
 	fi
 	@$(MAKE) --no-print-directory certs
+
+# Stage the static hellish release binary in srcs/shell/ (no root needed).
+hellish-fetch:
+	@mkdir -p srcs/shell; \
+	echo "[hellish] fetching $(HELLISH_VERSION) static binary ..."; \
+	curl -fsSL "$(HELLISH_URL)/hellish-linux-x86_64"        -o srcs/shell/.hellish.tmp    || exit 1; \
+	curl -fsSL "$(HELLISH_URL)/hellish-linux-x86_64.sha256" -o srcs/shell/.hellish.sha256 || exit 1; \
+	want=$$(cut -d' ' -f1 srcs/shell/.hellish.sha256); \
+	got=$$(sha256sum srcs/shell/.hellish.tmp | cut -d' ' -f1); \
+	if [ "$$want" != "$$got" ]; then \
+		echo "[hellish] ERROR: checksum mismatch (want $$want, got $$got)" >&2; \
+		rm -f srcs/shell/.hellish.tmp srcs/shell/.hellish.sha256; exit 1; \
+	fi; \
+	if ! ldd srcs/shell/.hellish.tmp 2>&1 | grep -qiE 'not a (valid )?dynamic|statically'; then \
+		echo "[hellish] ERROR: the release binary is not statically linked" >&2; \
+		rm -f srcs/shell/.hellish.tmp srcs/shell/.hellish.sha256; exit 1; \
+	fi; \
+	mv -f srcs/shell/.hellish.tmp srcs/shell/hellish && chmod 755 srcs/shell/hellish; \
+	rm -f srcs/shell/.hellish.sha256; \
+	echo "[hellish] staged srcs/shell/hellish (sha256 $$got)"
 
 certs:
 	@if [ ! -f $(CA_CRT) ]; then \
@@ -129,6 +199,87 @@ logs:
 
 status:
 	$(COMPOSE) ps
+
+ps: status
+
+# ── Lab (bonus web + api) ────────────────────────────────────────────────────
+# The site is static: pages that show database content are rendered at build
+# time from JSON snapshots committed under web/app/src/data. `snapshot` refreshes
+# them from the running API — through nginx, from the host, like any client —
+# and `re-web` rebuilds only the web image so the new content ships.
+SNAP_DIR = srcs/requirements/bonus/web/app/src/data
+
+snapshot:
+	@mkdir -p $(SNAP_DIR); \
+	for e in flights stats; do \
+		if $(SITE_CURL) -f "$(SITE_URL)/api/v1/$$e" -o $(SNAP_DIR)/$$e.json.tmp; then \
+			mv -f $(SNAP_DIR)/$$e.json.tmp $(SNAP_DIR)/$$e.json; \
+			echo "[snapshot] $(SNAP_DIR)/$$e.json refreshed"; \
+		else \
+			rm -f $(SNAP_DIR)/$$e.json.tmp; \
+			echo "[snapshot] ERROR: could not fetch /api/v1/$$e from $(SITE_URL) (is the stack up?)" >&2; \
+			exit 1; \
+		fi; \
+	done; \
+	ng=$$(docker exec nginx nginx -v 2>&1 | sed 's|.*/||'); \
+	php=$$(docker exec wordpress php -r 'echo PHP_VERSION;'); \
+	wp=$$(docker exec wordpress wp --allow-root --path=/var/www/html core version 2>/dev/null); \
+	mdb=$$(docker exec mariadb mariadbd --version | sed 's/.*Ver \([0-9.]*\).*/\1/'); \
+	rds=$$(docker exec redis redis-server --version | sed 's/.*v=\([0-9.]*\).*/\1/'); \
+	nd=$$(docker exec api node -p process.versions.node); \
+	alp=$$(docker exec nginx cat /etc/alpine-release | cut -d. -f1,2); \
+	if [ -z "$$ng" ] || [ -z "$$mdb" ] || [ -z "$$nd" ]; then \
+		echo "[snapshot] ERROR: could not read daemon versions (are the containers up?)" >&2; exit 1; \
+	fi; \
+	printf '{"alpine":"%s","nginx":"%s","php":"%s","wordpress":"%s","mariadb":"%s","redis":"%s","node":"%s","snapshot_at":"%s"}\n' \
+		"$$alp" "$$ng" "$$php" "$$wp" "$$mdb" "$$rds" "$$nd" "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" > $(SNAP_DIR)/stack.json; \
+	echo "[snapshot] $(SNAP_DIR)/stack.json refreshed ($$(cat $(SNAP_DIR)/stack.json))"
+
+re-web:
+	$(COMPOSE) up -d --build web
+
+# LAB_ARGS=--deep adds the SIGTERM drain and the late-MariaDB start.
+test-lab:
+	@HTTPS_PORT=$(HTTPS_PORT) $(SCRIPT_SH) tests/lab.sh $(LAB_ARGS)
+
+# ── nodetool: the only node/npm this project ever runs ───────────────────────
+# No Node toolchain on the host. Lockfiles are resolved, and any npm command is
+# run, inside an image built from srcs/requirements/bonus/nodetool — the same
+# alpine:3.23 + apk nodejs/npm the web and api build stages use. Like 42ctl it
+# is a CLI image, not a compose service (a CLI cannot be an honest PID-1 daemon).
+#   make lock                                   # (re)resolve both lockfiles
+#   make npm-web NPM="install --package-lock-only"
+#   make npm-api NPM="outdated"
+NODE_DIR   = srcs/requirements/bonus/nodetool
+NODE_IMAGE = nodetool:inception
+WEB_APP    = srcs/requirements/bonus/web/app
+API_APP    = srcs/requirements/bonus/api/app
+LOCK_ARGS  = install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+# Rootless daemon: container root IS the developer, so run as root. Rootful:
+# run as the developer's uid so the files npm writes are not root-owned.
+# $(1) = app directory (bind-mounted at /app), $(2) = npm arguments.
+NODE_RUN = u=0; docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q 'name=rootless' || u="$$(id -u):$$(id -g)"; \
+	docker run --rm -u "$$u" -v "$$PWD/$(1)":/app $(NODE_IMAGE) $(2)
+
+nodetool:
+	@echo "[nodetool] building $(NODE_IMAGE) ..."; \
+	docker build -t $(NODE_IMAGE) $(NODE_DIR)
+
+nodetool-present:
+	@docker image inspect $(NODE_IMAGE) >/dev/null 2>&1 || $(MAKE) --no-print-directory nodetool
+
+npm-web: nodetool-present
+	@$(call NODE_RUN,$(WEB_APP),$(NPM))
+
+npm-api: nodetool-present
+	@$(call NODE_RUN,$(API_APP),$(NPM))
+
+lock: nodetool-present
+	@for d in $(WEB_APP) $(API_APP); do \
+		echo "[lock] $$d/package-lock.json"; \
+		$(call NODE_RUN,$$d,$(LOCK_ARGS)) || exit 1; \
+	done
 
 # ── 42ctl: the vault42 remote controller ─────────────────────────────────────
 # Built from source (never pulled) into a local image, then invoked one shot at a
@@ -199,14 +350,14 @@ hellish-check:
 	[ $$fail -eq 0 ] && printf '  \033[0;32mOK\033[0m all %s tracked scripts declare #!/bin/hellish\n' \
 		"$$(git ls-files | grep -cE '\.sh$$')"; \
 	printf '\n-- staged binary --\n'; \
-	if cmp -s "$$(readlink -f $(INCEPTION_SHELL))" srcs/shell/hellish 2>/dev/null; then \
-		printf '  \033[0;32mOK\033[0m srcs/shell/hellish is byte-identical to %s\n' "$(INCEPTION_SHELL)"; \
+	if [ -x srcs/shell/hellish ] && ldd srcs/shell/hellish 2>&1 | grep -qiE 'not a (valid )?dynamic|statically'; then \
+		printf '  \033[0;32mOK\033[0m srcs/shell/hellish is staged and statically linked\n'; \
 	else \
-		printf '  \033[0;31mFAIL\033[0m srcs/shell/hellish missing or stale — run make setup\n'; fail=1; \
+		printf '  \033[0;31mFAIL\033[0m srcs/shell/hellish missing or dynamic — run make setup (or make hellish-fetch)\n'; fail=1; \
 	fi; \
 	printf '\n-- containers --\n'; \
 	running=0; \
-	for c in nginx wordpress mariadb redis ftp adminer dbbackup staticsite; do \
+	for c in nginx wordpress mariadb redis ftp adminer dbbackup staticsite web api; do \
 		docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$$c" || continue; \
 		running=1; \
 		bin=$$(docker exec "$$c" readlink -f /bin/hellish 2>/dev/null); \
@@ -328,17 +479,36 @@ trust:
 	fi
 	@printf '%b\n' "\033[1;32m✔ CA trusted: system store, browser NSS databases, Firefox policy.\033[0m"
 
+# Wipe the host data directory. With sudo when it is available; otherwise from
+# a throwaway container, because files written by a container's own users
+# (mysql, nobody) belong to sub-uids the plain user cannot delete.
 clean: down
 	$(COMPOSE) down -v --rmi all --remove-orphans
-	@sudo rm -rf $(DATA_DIR)
+	@if [ -d $(DATA_DIR) ]; then \
+		if sudo -n true 2>/dev/null; then \
+			sudo rm -rf $(DATA_DIR); \
+		else \
+			echo "[clean] no sudo: wiping $(DATA_DIR) from a throwaway $(BASE_IMAGE) container"; \
+			docker run --rm -v $(DATA_DIR):/data $(BASE_IMAGE) sh -c 'rm -rf /data/* /data/.[!.]* 2>/dev/null; true'; \
+			rm -rf $(DATA_DIR); \
+		fi; \
+	fi
+
+# Reclaim build cache and dangling images without touching other projects' volumes.
+prune:
+	docker builder prune -f
+	docker image prune -f
 
 fclean: clean
 	docker system prune -af --volumes
-	@sudo rm -f /usr/local/share/ca-certificates/inception-ca.crt 2>/dev/null; \
-		sudo update-ca-certificates 2>/dev/null || true
+	@if sudo -n true 2>/dev/null; then \
+		sudo rm -f /usr/local/share/ca-certificates/inception-ca.crt 2>/dev/null; \
+		sudo update-ca-certificates 2>/dev/null || true; \
+	fi
 
 re: clean all
 
-.PHONY: all up build setup certs down stop start restart logs status \
+.PHONY: all up build rebuild setup hellish-fetch certs down stop start restart logs status ps \
+	snapshot re-web test-lab nodetool nodetool-present npm-web npm-api lock \
 	42ctl 42ctl-present vault-login vault-status vault-push vault-pull hellish-check \
-	test test-deep bench bench-full run_wp trust clean fclean re
+	test test-deep bench bench-full run_wp trust clean prune fclean re

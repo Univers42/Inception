@@ -1,0 +1,28 @@
+---
+// The guestbook: not in the build snapshot (it must feel live), so the list
+// is fetched on load and every 10 s — the API caches it for exactly 10 s.
+---
+<div class="gb">
+  <form id="guestbook" class="guest-form" novalidate>
+    <div class="field">
+      <label for="g-handle">handle</label>
+      <input id="g-handle" name="handle" type="text" maxlength="32" autocomplete="nickname" aria-describedby="g-handle-hint g-handle-err" />
+      <p class="hint" id="g-handle-hint">2 – 24 letters, digits, space, _ . -</p>
+      <p class="hint err" id="g-handle-err" hidden></p>
+    </div>
+    <div class="field">
+      <label for="g-message">message</label>
+      <textarea id="g-message" name="message" maxlength="300" aria-describedby="g-message-hint g-message-err"></textarea>
+      <p class="hint" id="g-message-hint">1 – 280 characters · 5 posts per minute per address</p>
+      <p class="hint err" id="g-message-err" hidden></p>
+    </div>
+    <div class="row"><button type="submit" id="g-send">sign</button></div>
+    <p class="mono" id="g-out" role="status" aria-live="polite"></p>
+  </form>
+  <div>
+    <p class="mono muted" id="gb-state">loading…</p>
+    <ol class="entries" id="gb-list" reversed></ol>
+    <noscript><p class="muted">The guestbook is read from the API by JavaScript.</p></noscript>
+  </div>
+</div>
+<script src="./guestbook.ts"></script>

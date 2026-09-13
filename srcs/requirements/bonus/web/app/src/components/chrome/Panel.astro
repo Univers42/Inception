@@ -1,0 +1,10 @@
+---
+// A framed region. `live` draws the double border: the browser updates what
+// is inside. The title bar is a slot so pages can put real values in it.
+interface Props { live?: boolean; paper?: boolean; id?: string; class?: string; label?: string }
+const { live = false, paper = false, id, class: cls = '', label } = Astro.props;
+---
+<section id={id} class:list={['panel', { 'panel--live': live, 'panel--paper': paper }, cls]} aria-label={label}>
+  <h2 class="title"><slot name="title" /></h2>
+  <slot />
+</section>

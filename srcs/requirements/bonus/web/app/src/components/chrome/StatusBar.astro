@@ -1,0 +1,19 @@
+---
+// The tiling-WM bar: four pages (Alt+1..4), then what the API said last.
+interface Props { page: 'room' | 'flights' | 'guestbook' | 'about' | 'none' }
+const { page } = Astro.props;
+const base = import.meta.env.BASE_URL;
+const tabs = [['room', ''], ['flights', 'flights/'], ['guestbook', 'guestbook/'], ['about', 'about/']] as const;
+---
+<nav class="status" id="status" aria-label="pages and API status" data-health="unknown">
+  <div class="tabs">
+    {tabs.map(([name, path], i) => (
+      <a href={base + path} aria-current={page === name ? 'page' : undefined} title={`Alt+${i + 1}`}><span class="n">{i + 1}</span><span class="name">:{name}</span></a>
+    ))}
+  </div>
+  <span class="grow"></span>
+  <span class="dot" id="st-api">api waiting</span>
+  <span class="wide" id="st-req">req —</span>
+  <span class="wide" id="st-hit">hit —</span>
+  <span id="st-clock">--:--</span>
+</nav>

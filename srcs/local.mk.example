@@ -1,0 +1,10 @@
+# srcs/local.mk — host-only make settings (git-ignored). Copy to srcs/local.mk.
+#
+# On a 42 workstation the home directory is a few GB and shared with everything
+# else, and the sgoinfre share cannot hold database files (it refuses the chown
+# a container's mysql user needs). Keep the volumes on the local /goinfre disk,
+# next to the rootless Docker data-root, and the Docker CLI's own state on
+# sgoinfre. Pair it with srcs/docker-compose.local.yml, whose volumes read
+# INCEPTION_DATA_DIR (exported by the Makefile from DATA_DIR).
+DATA_DIR      = /goinfre/dlesieur/inception-data
+DOCKER_CONFIG = /sgoinfre/students/dlesieur/.docker-cli

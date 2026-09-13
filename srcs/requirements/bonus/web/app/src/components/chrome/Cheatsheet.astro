@@ -1,0 +1,26 @@
+---
+// '?' — every key and every palette command. The command table is the real
+// command list, imported from the same module the palette runs.
+import { commands } from '../../lib/commands';
+const keys = [
+  ['Alt+1 … Alt+4', 'room, flights, guestbook, about (plain 1–4 works outside inputs)'],
+  [':', 'command palette'],
+  ['/', 'filter the table on this page, or the palette elsewhere'],
+  ['?', 'this sheet'],
+  ['gg / G', 'top / bottom of the page'],
+  ['j / k', 'scroll down / up'],
+  ['Tab / ↑ ↓', 'complete a command / walk the palette history'],
+  ['Esc', 'close, or leave an input'],
+];
+---
+<dialog class="sheet" id="cheatsheet" aria-labelledby="cheat-title">
+  <h2 id="cheat-title">keys</h2>
+  <div class="tbl"><table>
+    <tbody>{keys.map(([k, what]) => <tr><td><kbd>{k}</kbd></td><td class="wrap">{what}</td></tr>)}</tbody>
+  </table></div>
+  <h2 class="gap">commands</h2>
+  <div class="tbl"><table>
+    <tbody>{commands.map((c) => <tr><td><code>:{c.usage}</code></td><td class="wrap">{c.help}</td></tr>)}</tbody>
+  </table></div>
+  <div class="close"><button type="button" id="cheatsheet-close">close <kbd>Esc</kbd></button></div>
+</dialog>

@@ -1,0 +1,10 @@
+---
+// The ':' command line. Markup only; src/lib/palette.ts drives it.
+---
+<dialog class="palette" id="palette" aria-label="command palette">
+  <form id="palette-form" autocomplete="off">
+    <label class="prompt" for="palette-input">:</label>
+    <input id="palette-input" type="text" spellcheck="false" placeholder="help" aria-describedby="palette-out" />
+  </form>
+  <pre class="out" id="palette-out" aria-live="polite"></pre>
+</dialog>

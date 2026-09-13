@@ -1,0 +1,38 @@
+---
+// The departures board. Rendered from the snapshot at build time, refreshed
+// by flight-table.ts from the live flights list (every 15 s, and at once
+// after a dispatch). `limit` rows; `filter` adds the '/'-focusable search box.
+import snapshot from '../../data/flights.json';
+import { fmt, type Flight } from '../../lib/api';
+import { flightText } from '../../lib/rows';
+interface Props { limit?: number; filter?: boolean; caption: string }
+const { limit = 100, filter = false, caption } = Astro.props;
+const base = import.meta.env.BASE_URL;
+const flights = ((snapshot as any).flights as Flight[]).slice(0, limit);
+---
+{filter && (
+  <div class="row filter">
+    <label class="mono" for="flight-filter">filter <kbd>/</kbd></label>
+    <input id="flight-filter" type="text" data-search spellcheck="false" autocomplete="off" placeholder="callsign, cabinet, status…" />
+    <span class="muted mono" id="flight-count" aria-live="polite">{flights.length} shown</span>
+  </div>
+)}
+<div class="tbl">
+  <table data-flights data-limit={limit}>
+    <caption class="skip">{caption}</caption>
+    <thead><tr><th scope="col">callsign</th><th scope="col">route</th><th scope="col">status</th><th scope="col" class="num">payload</th><th scope="col">note</th><th scope="col">created</th></tr></thead>
+    <tbody>
+      {flights.map((f) => (
+        <tr data-id={f.id} data-text={flightText(f)}>
+          <td><a class="mono" href={`${base}flights/${f.id}/`}>{f.callsign}</a></td>
+          <td><span class="mono">{f.origin}</span> <span class="arrow">─►</span> <span class="mono">{f.destination}</span></td>
+          <td><span class={`st st-${f.status}`}>{f.status}</span></td>
+          <td class="num">{f.payload_kb} kB</td>
+          <td class="wrap">{f.note ?? ''}</td>
+          <td class="mono muted">{fmt.utc(f.created_at)}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+<script src="./flight-table.ts"></script>

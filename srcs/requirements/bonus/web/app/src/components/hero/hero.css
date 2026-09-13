@@ -1,0 +1,31 @@
+/* srcs/requirements/bonus/web/app/src/components/hero/hero.css */
+/* the box is reserved at first paint (2:1, like the 320×160 room), so the
+   integer-scaled canvas never pushes the panels below it once JS sizes it */
+.room-wrap { display: flex; justify-content: center; align-items: center; background: #000; aspect-ratio: 2 / 1; max-width: 100%; max-height: 640px; overflow: hidden; }
+.room-wrap canvas { display: block; image-rendering: pixelated; max-width: 100%; }
+/* display: block above beats the browser's own [hidden] rule: restate it, or the
+   canvas shows at 320×160 and grows once sized, which is a layout shift */
+.room-wrap canvas[hidden] { display: none; }
+/* reserved height: the live caption is longer than the build-time one */
+.room-caption { margin-top: 8px; font-size: 14px; min-height: 96px; }
+@media (min-width: 720px) { .room-caption { min-height: 48px; } }
+
+/* the poll clock: a 2 px line that fills in the 5 s until the next poll.
+   --scan is registered with @property, so the gradient stop can animate. */
+.pollbar { height: 2px; margin-top: 8px; --scan: 0%;
+  background: linear-gradient(to right, var(--structure) var(--scan), var(--c0) var(--scan)); }
+.pollbar.run { animation: poll-scan 5s steps(20) forwards; }
+@keyframes poll-scan { from { --scan: 0%; } to { --scan: 100%; } }
+
+/* the wires table: numeric columns keep their width, so live numbers never
+   reflow the rows (no layout shift once the stream starts) */
+.wires-tbl { margin-top: 8px; }
+.wires th.num, .wires td.num { width: 8ch; }
+/* a phone has room for the numbers only if the wire's name may wrap */
+@media (max-width: 559px) { .wires td:first-child { white-space: normal; } }
+.wires-legend { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.wires-legend .lg { white-space: nowrap; }
+/* a swatch is a dot on its duct: colour on a black chip, like the canvas */
+.sw { display: inline-block; width: 16px; height: 8px; margin-right: 6px; vertical-align: 0; border: 2px solid var(--c0); background: var(--c0); }
+.sw-ok { background: var(--c15); } .sw-hit { background: var(--c11); } .sw-miss { background: var(--c14); }
+.sw-slow { background: var(--c13); } .sw-err { background: var(--c12); }

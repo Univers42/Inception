@@ -1,0 +1,22 @@
+---
+// The six cabinets as a row of boxes and this flight's path between them,
+// drawn with one stroke (pathLength=1, dash-offset animated on scroll).
+import { CABINETS } from '../../lib/api';
+interface Props { origin: string; destination: string }
+const { origin, destination } = Astro.props;
+const x = (c: string) => 24 + CABINETS.indexOf(c as any) * 88;
+const o = x(origin) + 28, d = x(destination) + 28;
+const lift = 26 + Math.abs(CABINETS.indexOf(destination as any) - CABINETS.indexOf(origin as any)) * 6;
+---
+<div class="tbl route">
+  <svg viewBox="0 0 560 120" width="560" height="120" role="img" aria-label={`path from ${origin} to ${destination}`} class="draw">
+    {CABINETS.map((c) => (
+      <g>
+        <rect x={x(c)} y="64" width="56" height="32" fill="#000000" stroke={c === origin || c === destination ? '#ffff55' : '#00aaaa'} stroke-width="2" />
+        <text x={x(c) + 28} y="84" text-anchor="middle" fill={c === origin || c === destination ? '#ffff55' : '#aaaaaa'} font-size="11" font-family="Departure Mono, monospace">{c}</text>
+      </g>
+    ))}
+    <polyline points={`${o},64 ${o},${64 - lift} ${d},${64 - lift} ${d},60`} fill="none" stroke="#55ff55" stroke-width="2" pathLength="1" />
+    <polygon points={`${d - 5},54 ${d + 5},54 ${d},62`} fill="#55ff55" />
+  </svg>
+</div>

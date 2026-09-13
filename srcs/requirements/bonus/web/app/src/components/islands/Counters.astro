@@ -1,0 +1,22 @@
+---
+// Every counter the API keeps, as a text meter. Build-time values from the
+// snapshot, marked as such until counters.ts replaces them with live ones.
+import Panel from '../chrome/Panel.astro';
+import stats from '../../data/stats.json';
+import { fmt } from '../../lib/api';
+const s = stats as any;
+const names = Object.keys(s.counters) as string[];
+const max = Math.max(1, ...names.map((n) => s.counters[n]));
+---
+<Panel live id="counters" label="counters">
+  <Fragment slot="title">counters<span class="sep">═</span>source <span class="v" id="ctr-source">snapshot</span><span class="sep">═</span>pool <span class="v" id="ctr-pool">{s.gauges.db_pool.size}/{s.gauges.db_pool.limit}</span></Fragment>
+  <div class="meters" data-max={max}>
+    {names.map((n) => (
+      <div class="meter" data-counter={n}>
+        <span class="k">{n}</span><span class="v">{fmt.int(s.counters[n])}</span><span class="bar" aria-hidden="true">{fmt.bar(s.counters[n], max)}</span>
+      </div>
+    ))}
+  </div>
+  <p class="muted mono flights-line" id="ctr-flights">flights boarding {s.flights.boarding} · en-route {s.flights['en-route']} · landed {s.flights.landed} · diverted {s.flights.diverted}</p>
+</Panel>
+<script src="./counters.ts"></script>

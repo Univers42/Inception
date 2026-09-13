@@ -1,0 +1,17 @@
+{
+  "name": "inception-lab-api",
+  "version": "1.0.0",
+  "description": "JSON API behind /api/v1/ — MariaDB for truth, Redis for cache, no framework",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "mysql2": "3.24.4"
+  }
+}

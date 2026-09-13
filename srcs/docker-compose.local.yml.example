@@ -1,0 +1,36 @@
+# srcs/docker-compose.local.yml.example — copy to srcs/docker-compose.local.yml
+# (git-ignored) on a host with rootless Docker, together with srcs/local.mk.
+# Rootless Docker cannot bind 443, and the born2root VM holds 8443/8090/8080/
+# 8081/8082/3000 on loopback, so everything published is moved to free ports.
+#   https://dlesieur.42.fr:9443/lab/   (curl --resolve dlesieur.42.fr:9443:127.0.0.1)
+# The volumes live under $INCEPTION_DATA_DIR (DATA_DIR in srcs/local.mk) instead
+# of /home/dlesieur/data, under their own names so the home-based volumes are
+# left exactly as they were.
+services:
+  nginx:
+    ports: !override
+      - "9443:443"
+  staticsite:
+    ports: !override
+      - "18090:8090"
+  adminer:
+    ports: !override
+      - "18080:8080"
+  ftp:
+    ports: !override
+      - "2121:21"
+      - "21000-21010:21000-21010"
+
+volumes:
+  db_data:
+    name: inception_db_data_local
+    driver_opts:
+      device: ${INCEPTION_DATA_DIR:?run through make; srcs/local.mk sets DATA_DIR}/mariadb
+  wp_data:
+    name: inception_wp_data_local
+    driver_opts:
+      device: ${INCEPTION_DATA_DIR:?run through make; srcs/local.mk sets DATA_DIR}/wordpress
+  backup_data:
+    name: inception_backup_data_local
+    driver_opts:
+      device: ${INCEPTION_DATA_DIR:?run through make; srcs/local.mk sets DATA_DIR}/backups

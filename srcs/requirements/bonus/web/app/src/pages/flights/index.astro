@@ -1,0 +1,24 @@
+---
+import Base from '../../layouts/Base.astro';
+import Panel from '../../components/chrome/Panel.astro';
+import FlightTable from '../../components/islands/FlightTable.astro';
+import Dispatch from '../../components/islands/Dispatch.astro';
+import snapshot from '../../data/flights.json';
+const n = (snapshot as any).flights.length;
+---
+<Base title="flights" page="flights" description="Every packet dispatched between the cabinets of the machine room.">
+  <header class="intro">
+    <h1>departures</h1>
+    <p>A flight is a row in the <code>lab.flights</code> table. It boards, goes en route after 30 seconds and lands after
+      three minutes, advanced by the API's own minute tick. The list is cached in Redis for 60 seconds and invalidated the
+      moment a flight is created.</p>
+  </header>
+  <Panel live label="dispatch">
+    <Fragment slot="title">dispatch<span class="sep">═</span>POST /api/v1/flights<span class="sep">═</span><span class="v">10</span>/min per address</Fragment>
+    <Dispatch />
+  </Panel>
+  <Panel live label="board">
+    <Fragment slot="title">board<span class="sep">═</span><span class="v">{n}</span> at build<span class="sep">═</span>refresh 15s</Fragment>
+    <FlightTable filter caption="all flights, most recent first" />
+  </Panel>
+</Base>

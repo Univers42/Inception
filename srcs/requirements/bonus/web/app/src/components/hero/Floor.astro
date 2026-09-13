@@ -1,0 +1,43 @@
+---
+// The machine room panel: a double border (live), the canvas, a poll clock
+// and a text caption that says in words what the picture shows.
+import Panel from '../chrome/Panel.astro';
+import stats from '../../data/stats.json';
+import { fmt } from '../../lib/api';
+import { WIRES, OUTCOMES, OUTCOME_LABEL } from '../../lib/wires';
+import './hero.css';
+const s = stats as any;
+const caption = `Machine room: six cabinets. ${s.flights.boarding} boarding, ${s.flights['en-route']} en route, ${s.flights.landed} landed. ` +
+  `${fmt.int(s.counters.http_requests)} API requests (build-time snapshot).`;
+---
+<Panel live id="room" label="machine room">
+  <Fragment slot="title">machine room<span class="sep">═</span><span id="room-state" class="v">snapshot</span><span class="sep">═</span>wires <span id="room-wires" class="v">off</span><span class="sep">═</span>next tick <span id="room-tick" class="v">{fmt.mmss(s.next_minute_tick_s)}</span></Fragment>
+  <div class="room-wrap" id="room-wrap">
+    <canvas id="room-canvas" width="320" height="160" role="img" aria-label={caption} hidden></canvas>
+  </div>
+  <div class="pollbar" id="pollbar" aria-hidden="true"></div>
+  <div class="tbl wires-tbl">
+    <table class="wires">
+      <caption class="skip">traffic on each wire, live: requests per second, median latency, and how many requests one dot stands for</caption>
+      <thead><tr><th scope="col">wire</th><th scope="col" class="num">req/s</th><th scope="col" class="num">p50</th><th scope="col" class="num">req/dot</th><th scope="col" class="hide-narrow">measured</th></tr></thead>
+      <tbody>
+        {WIRES.map((w) => (
+          <tr data-wire={w.id}>
+            <td class="mono">{w.from} <span class="arrow">→</span> {w.to}</td>
+            <td class="num" data-rate>—</td>
+            <td class="num" data-p50>{w.sampled ? 'n/a' : '—'}</td>
+            <td class="num" data-per>—</td>
+            <td class="muted hide-narrow">{w.measured}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+  <p class="wires-legend small">
+    {OUTCOMES.map((o) => <span class="lg"><span class={`sw sw-${o}`} aria-hidden="true"></span>{OUTCOME_LABEL[o]}</span>)}
+    <span class="lg muted">a dot crosses its wire in half a second</span>
+  </p>
+  <p class="room-caption muted" id="room-caption" aria-live="off">{caption}</p>
+  <noscript><p class="muted">The room is drawn by JavaScript. The tables below carry the same numbers, from the build.</p></noscript>
+</Panel>
+<script src="./Daemons.ts"></script>

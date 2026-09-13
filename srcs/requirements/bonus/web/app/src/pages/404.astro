@@ -1,0 +1,27 @@
+---
+// Served by nginx for any missing path under /lab/. One case is not an error:
+// a flight created after the build has no page on disk, so a URL of the form
+// /lab/flights/<id>/ is drawn live from the API by not-found.ts.
+import Base from '../layouts/Base.astro';
+import Panel from '../components/chrome/Panel.astro';
+const base = import.meta.env.BASE_URL;
+---
+<Base title="not found" page="none" description="Nothing lives at this address.">
+  <Panel live label="not found" id="nf">
+    <Fragment slot="title"><span id="nf-code">404</span><span class="sep">═</span><span class="v" id="nf-path">no such page</span></Fragment>
+    <div id="nf-body">
+      <h1>nothing in this rack</h1>
+      <p>There is no page at this address. Try <a href={base}>the machine room</a>, <a href={`${base}flights/`}>the departures board</a>,
+        or press <kbd>:</kbd> and type <code>help</code>.</p>
+    </div>
+    <dl class="kv" id="nf-flight" hidden>
+      <dt>route</dt><dd class="mono" id="nf-route"></dd>
+      <dt>status</dt><dd><span id="nf-status" class="st"></span></dd>
+      <dt>payload</dt><dd class="mono" id="nf-payload"></dd>
+      <dt>note</dt><dd id="nf-note"></dd>
+      <dt>created</dt><dd class="mono" id="nf-created"></dd>
+      <dt>source</dt><dd class="mono muted">GET /api/v1/flights/<span id="nf-id"></span> · live, created after this site was built</dd>
+    </dl>
+  </Panel>
+</Base>
+<script src="../components/islands/not-found.ts"></script>
