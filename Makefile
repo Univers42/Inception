@@ -298,12 +298,23 @@ C42_ENV  = set -a; . ./$(C42_CONF); set +a
 		--build-arg C42_REF="$$C42_REF" \
 		-t "$$C42_IMAGE" $(C42_DIR)
 
-# The repo is the tree the CLI acts on; the host's ~/.42ctl carries the identity
-# keypair and session, so no secret is ever baked into the image or the repo.
-C42_RUN = $(C42_ENV); mkdir -p "$$HOME/.42ctl"; \
-	docker run --rm -i \
+# The repo is the tree the CLI acts on. The identity keypair, the profile and its
+# session and contract live in C42_HOME on the host — the same ~/.config/42ctl a
+# native 42ctl uses — mounted at run time, so no secret is ever baked into the image
+# or the repo. FT_CONFIG and FT_KEYSTORE point 42ctl at that mount; without them it
+# writes to the container's own home, and every one-shot run forgets the last.
+# It runs as the developer, exactly as NODE_RUN does (root on a rootless daemon, where
+# container root IS the developer; the caller's uid on a rootful one), so a pull writes
+# files this user owns. It gets a TTY only when there is one, for the prompts.
+C42_HOME ?= $(HOME)/.config/42ctl
+C42_RUN = $(C42_ENV); mkdir -p "$(C42_HOME)"; \
+	u=0; docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q 'name=rootless' || u="$$(id -u):$$(id -g)"; \
+	docker run --rm -i $$([ -t 0 ] && echo -t) \
+		--user "$$u" \
 		-v "$$PWD":/work -w /work \
-		-v "$$HOME/.42ctl":/home/nonroot/.42ctl \
+		-v "$(C42_HOME)":/config \
+		-e FT_CONFIG=/config/config.json \
+		-e FT_KEYSTORE=/config/keystore.v42 \
 		-e FT_PROFILE="$$C42_PROFILE" \
 		"$$C42_IMAGE"
 
@@ -312,15 +323,29 @@ C42_RUN = $(C42_ENV); mkdir -p "$$HOME/.42ctl"; \
 	docker image inspect "$$C42_IMAGE" >/dev/null 2>&1 \
 		|| { echo "[42ctl] $$C42_IMAGE is not built — run 'make 42ctl'" >&2; exit 1; }
 
+# Once per machine, and only if C42_HOME holds no identity yet: prompts for a NEW passphrase.
+vault-init: 42ctl-present
+	@$(C42_RUN) keys init
+
+# Once per person. EMAIL (and TENANT below) belong to you, not to the project, so they
+# come from the command line rather than from the tracked conf.
+vault-signup: 42ctl-present
+	@[ -n "$(EMAIL)" ] || { echo "usage: make vault-signup EMAIL=<you@example.com>" >&2; exit 2; }
+	@$(C42_RUN) auth signup --email "$(EMAIL)"
+
+# Point the profile at the deployment, then sign in and take the contract in one step.
 vault-login: 42ctl-present
-	@$(C42_RUN) config endpoint --api "$$C42_ENDPOINT"
-	@$(C42_RUN) auth login
+	@[ -n "$(EMAIL)" ] && [ -n "$(TENANT)" ] \
+		|| { echo "usage: make vault-login EMAIL=<you@example.com> TENANT=<tenant>" >&2; exit 2; }
+	@$(C42_RUN) config endpoint --server "$$C42_SERVER" --authority "$$C42_AUTHORITY"
+	@$(C42_RUN) auth login --password --email "$(EMAIL)" --tenant "$(TENANT)"
 
 vault-status: 42ctl-present
 	@$(C42_RUN) config show
+	@$(C42_RUN) auth status
 
 vault-push: 42ctl-present
-	@$(C42_ENV); echo "[42ctl] pushing $$C42_PATHS -> $$C42_ENDPOINT"
+	@$(C42_ENV); echo "[42ctl] pushing this tree's secrets -> $$C42_SERVER"
 	@$(C42_RUN) push
 
 # Dry-run first: you always see what would land where before anything is written.
@@ -510,5 +535,6 @@ re: clean all
 
 .PHONY: all up build rebuild setup hellish-fetch certs down stop start restart logs status ps \
 	snapshot re-web test-lab nodetool nodetool-present npm-web npm-api lock \
-	42ctl 42ctl-present vault-login vault-status vault-push vault-pull hellish-check \
+	42ctl 42ctl-present vault-init vault-signup vault-login vault-status vault-push vault-pull \
+	hellish-check \
 	test test-deep bench bench-full run_wp trust clean prune fclean re
