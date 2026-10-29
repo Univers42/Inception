@@ -1,0 +1,26 @@
+<p>Of the three mandatory containers, only nginx is reachable from outside, and only on port 443. WordPress and MariaDB publish nothing. Every page, image and API answer on <code>dlesieur.42.fr</code> goes through this one door.</p>
+
+<h2>Where each path goes</h2>
+<pre class="mermaid">flowchart LR
+    accTitle: nginx, the only door
+    accDescr: The browser reaches nginx over TLS 1.2 or 1.3 on port 443. nginx sends /dream/ and /_dream/ to the landing on staticsite:8090, /lab/ to web:8080, /api/v1/ to api:3000, and everything else to WordPress on port 9000 over FastCGI.
+    browser(["Browser"]) --&gt;|"TLS 1.2 / 1.3 on :443"| nginx["nginx"]
+    nginx --&gt;|"/dream/ and /_dream/"| landing["staticsite:8090&lt;br/&gt;the landing"]
+    nginx --&gt;|"/lab/"| web["web:8080&lt;br/&gt;the lab"]
+    nginx --&gt;|"/api/v1/"| api["api:3000&lt;br/&gt;JSON"]
+    nginx --&gt;|"everything else, FastCGI"| wordpress["wordpress:9000&lt;br/&gt;blog, wiki, wp-admin"]</pre>
+<p>The bare <code>/</code> is WordPress's front page: the evaluation opens it expecting the configured WordPress site, so no bonus may stand in for it. The landing, built with React and served by its own small nginx in the <code>staticsite</code> container, answers one link away at <code>/dream/</code>; nginx swaps that prefix for the staticsite's own <code>/</code> on the way. <code>/</code>, <code>/blog/</code>, <code>/wiki/</code> and <code>/wp-admin/</code> fall through to WordPress: nginx hands <code>.php</code> requests to php-fpm over FastCGI on port 9000 and serves the static files itself, read-only, from the volume they share.</p>
+
+<h2>TLS, and nothing older</h2>
+<p>The server accepts TLS 1.2 and 1.3 only (<code>ssl_protocols</code>), with an ECDSA P-256 key and a modern AEAD cipher list, and hides its version (<code>server_tokens off</code>). The certificate is issued on the host by a local certification authority, and the CA's private key never enters a container: nginx receives the server certificate and key, nothing more.</p>
+
+<h2>Keeping connections, not opening them</h2>
+<p>The lab's upstreams keep a pool of open connections instead of opening one per request. The reason is a measurement: with one connection per request, every closed socket waits a minute in <code>TIME_WAIT</code>, and 3 300 requests a second to <code>/api/v1/</code> filled the whole local port range (28 267 sockets) in 9 seconds. nginx answered 502 until they expired. Upstream names are re-resolved through Docker's DNS, so a recreated container is found again without restarting nginx.</p>
+
+<h2>What the door refuses</h2>
+<ul>
+<li><strong>Password guessing:</strong> sign-in attempts (<code>POST /wp-login.php</code>) are limited to 10 a minute per address with a burst of 5, then answered 429.</li>
+<li><strong>XML-RPC:</strong> <code>/xmlrpc.php</code> answers 403. Nothing here uses it, and it could try hundreds of passwords in one request.</li>
+<li><strong>Framing and sniffing:</strong> pages may only be framed by the site itself (<code>frame-ancestors 'self'</code>), and browsers must not guess content types (<code>nosniff</code>).</li>
+</ul>
+[callout type="warn" title="no HSTS, on purpose"]A browser applies HSTS to the whole host name, ports included, and the static site's bonus port 8090 is plain HTTP. Turning HSTS on would make that port unreachable from any browser that had visited the HTTPS site.[/callout]

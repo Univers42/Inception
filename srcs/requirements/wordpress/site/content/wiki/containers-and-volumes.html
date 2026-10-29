@@ -1,0 +1,17 @@
+<pre><code class="language-bash">docker exec -it nginx     sh          # shell into a container
+docker exec -it wordpress sh
+docker exec -it mariadb   sh
+
+# WP-CLI (any WordPress operation):
+docker exec wordpress wp --allow-root --path=/var/www/html &lt;command&gt;
+
+# Database shell (prompt reads the value of secrets/db_password.txt):
+docker exec -it mariadb mariadb -u wpuser -p wordpress
+
+# Volumes:
+docker volume ls
+docker volume inspect inception_db_data
+docker volume inspect inception_wp_data
+</code></pre>
+<p>Wipe and rebuild from zero: <code>make clean &amp;&amp; make</code> (or <code>make re</code>).</p>
+<hr>

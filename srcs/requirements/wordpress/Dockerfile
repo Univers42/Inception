@@ -1,4 +1,4 @@
-FROM alpine:3.23 AS wp-src
+FROM alpine:3.23.7 AS wp-src
 
 ARG DL_CACHE_ID=dl
 ARG CACHE_BUST=0
@@ -12,7 +12,44 @@ RUN --mount=type=cache,id=${DL_CACHE_ID}-wpsrc,sharing=locked,target=/dl \
     && tar -xzf /dl/wp.tar.gz -C /usr/src \
     && install -m 0755 /dl/wp-cli.phar /usr/local/bin/wp
 
-FROM alpine:3.23
+# Pinned plugins (site/plugins.txt), unpacked to /usr/src/plugins. Only the
+# list is copied here, so editing the theme never re-downloads them; a zip is
+# kept in the download cache under its version, so a bump fetches one file.
+COPY site/plugins.txt /tmp/plugins.txt
+RUN --mount=type=cache,id=${DL_CACHE_ID}-wpplugins,sharing=locked,target=/dl \
+    : "bust=${CACHE_BUST}" \
+    && mkdir -p /usr/src/plugins \
+    && grep -vE '^[[:space:]]*(#|$)' /tmp/plugins.txt | while read -r slug ver; do \
+        zip="/dl/$slug.$ver.zip"; \
+        { [ -f "$zip" ] || { wget -qO "$zip.tmp" "https://downloads.wordpress.org/plugin/$slug.$ver.zip" \
+            && mv "$zip.tmp" "$zip"; }; } \
+        && unzip -q "$zip" -d /usr/src/plugins \
+        && [ -d "/usr/src/plugins/$slug" ] \
+        || { echo "plugin $slug $ver: download or unpack failed" >&2; exit 1; }; \
+    done
+
+# Mermaid draws the wiki's and the blog's diagrams in the browser, served from
+# the theme like every other asset (no CDN). Only the minified ES-module build
+# ships: 30 KB of entry point, then the chunks one diagram type needs (3.3 MB
+# on disk, not per page). The tarball is checked against its SHA-256 because
+# this is code every visitor runs.
+ARG MERMAID_VERSION=11.17.2
+ARG MERMAID_SHA256=6ad2f42c3fc26bbf9e45cbb6d11898972573ea52b33a5f4ff51952899f950ffd
+RUN --mount=type=cache,id=${DL_CACHE_ID}-mermaid,sharing=locked,target=/dl \
+    : "bust=${CACHE_BUST}" \
+    && tgz="/dl/mermaid-${MERMAID_VERSION}.tgz" \
+    && { [ -f "$tgz" ] || { wget -qO "$tgz.tmp" "https://registry.npmjs.org/mermaid/-/mermaid-${MERMAID_VERSION}.tgz" \
+        && mv "$tgz.tmp" "$tgz"; }; } \
+    && echo "${MERMAID_SHA256}  $tgz" | sha256sum -c -s \
+    && mkdir -p /tmp/mermaid /usr/src/mermaid/chunks \
+    && tar -xzf "$tgz" -C /tmp/mermaid \
+    && cp /tmp/mermaid/package/dist/mermaid.esm.min.mjs /tmp/mermaid/package/LICENSE /usr/src/mermaid/ \
+    && cp -r /tmp/mermaid/package/dist/chunks/mermaid.esm.min /usr/src/mermaid/chunks/ \
+    && find /usr/src/mermaid -name '*.map' -delete \
+    && rm -rf /tmp/mermaid \
+    || { echo "mermaid ${MERMAID_VERSION}: download, checksum or unpack failed" >&2; exit 1; }
+
+FROM alpine:3.23.7
 
 ARG APK_CACHE_ID=apk
 ARG CACHE_BUST=0
@@ -59,6 +96,11 @@ COPY conf/opcache.ini conf/uploads.ini /etc/php84/conf.d/
 COPY --chmod=755 tools/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 COPY site/ /usr/src/inception-site/
+COPY --from=wp-src --chown=nobody:nobody /usr/src/plugins /usr/src/inception-plugins
+# srcs/design (tokens + fonts), shared with the landing: the theme loads it
+# from assets/design/, so a colour changes in one file for both sites.
+COPY --from=design / /usr/src/inception-site/theme/inception-terminal/assets/design/
+COPY --from=wp-src /usr/src/mermaid/ /usr/src/inception-site/theme/inception-terminal/assets/vendor/mermaid/
 
 WORKDIR /var/www/html
 
@@ -67,7 +109,7 @@ EXPOSE 9000
 # Observe the listening socket instead of connecting to it (same rule as the
 # FTP healthcheck). php-fpm counts every connection it accepts, an empty one
 # included, and the lab's traffic view reads that counter: an nc -z every 3 s
-# drew a request that never happened on the nginx → wordpress wire. It is no
+# drew a request that never happened on the edge → wordpress wire. It is no
 # weaker a check: the kernel completes nc's handshake from the listen backlog
 # whether or not php-fpm is able to serve.
 HEALTHCHECK --interval=3s --timeout=3s --start-period=60s --start-interval=500ms --retries=10 \

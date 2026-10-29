@@ -7,18 +7,18 @@
 
 <h2>Named volumes at a fixed host path</h2>
 <p>Two top-level named volumes satisfy both subject rules at once — they are real named volumes (services never bind-mount host paths), and their data lives inside <code>/home/dlesieur/data</code> via the local driver's <code>device</code> option:</p>
-<table>
+<div class="table-scroll"><table>
 <tr><th>volume</th><th>host path</th><th>contents</th></tr>
 <tr><td><code>inception_db_data</code></td><td><code>/home/dlesieur/data/mariadb</code></td><td>MariaDB data directory</td></tr>
 <tr><td><code>inception_wp_data</code></td><td><code>/home/dlesieur/data/wordpress</code></td><td>WordPress core, themes, uploads</td></tr>
-</table>
+</table></div>
 [cmd]docker volume inspect inception_db_data[/cmd]
 
 <h2>Secrets, not environment variables</h2>
 <p>Compose mounts each credential file at <code>/run/secrets/&lt;name&gt;</code> (mode 0400) inside exactly the services that need it. Non-sensitive configuration — domain, database name, usernames — travels as environment variables from <code>srcs/.env</code>. The TLS server key is also a secret; the CA private key stays on the host, because <code>make trust</code> makes browsers trust that CA.</p>
 
 <h2>Startup order by real healthchecks</h2>
-<p><code>depends_on: condition: service_healthy</code> chains the stack. MariaDB is “healthy” only when the <em>application user</em> can connect over TCP — exactly what WordPress needs. WordPress is healthy when php-fpm accepts FastCGI connections. All checks poll at 500ms during startup (<code>--start-interval</code>), so each layer starts the moment the one below is usable:</p>
+<p><code>depends_on: condition: service_healthy</code> chains the stack. MariaDB is “healthy” only when the <em>application user</em> can connect over TCP — exactly what WordPress needs. WordPress is healthy when php-fpm accepts FastCGI connections. All checks poll at 500 ms during startup (<code>--start-interval</code>), so each layer starts the moment the one below is usable:</p>
 [term_window title="docker compose up -d"]
 [out]✔ Container mariadb    Healthy   3.9s
 ✔ Container wordpress  Healthy   6.1s

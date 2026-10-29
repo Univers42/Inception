@@ -1,0 +1,8 @@
+<pre><code class="language-bash">make            # first run: full setup + build + start; later runs: just start
+make down       # stop and remove the containers — your data is preserved
+make stop       # stop containers without removing them
+make start      # start previously-stopped containers
+make restart    # restart all services
+</code></pre>
+<p>After the first run, <code>make</code> brings the stack back up in a few seconds — it does not rebuild or regenerate anything that already exists.</p>
+<hr>

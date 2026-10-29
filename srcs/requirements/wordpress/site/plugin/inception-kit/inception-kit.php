@@ -1,28 +1,49 @@
 <?php
+/**
+ * Plugin Name: Inception Kit
+ * Description: The blog's shortcodes and block patterns; the wiki's /wiki/ routing; the sign-in hardening and the maintainer's dashboard.
+ * Version:     2.0.0
+ * Author:      dlesieur
+ * License:     MIT
+ *
+ * WordPress finds a plugin by this header. Without it the kit is not a plugin
+ * at all and activate_plugin() fails without a word: it did from 2026-09-08,
+ * when a comment sweep took the header, to 2026-10-28. install.sh activates
+ * it by name, so a missing header now stops the boot instead.
+ */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'INCEPTION_KIT_VERSION', '1.1.0' );
+define( 'INCEPTION_KIT_VERSION', '2.0.0' );
 define( 'INCEPTION_KIT_URL', plugin_dir_url( __FILE__ ) );
 define( 'INCEPTION_KIT_DIR', plugin_dir_path( __FILE__ ) );
 
 require_once INCEPTION_KIT_DIR . 'shortcodes.php';
 require_once INCEPTION_KIT_DIR . 'patterns.php';
+require_once INCEPTION_KIT_DIR . 'wiki.php';
+require_once INCEPTION_KIT_DIR . 'hardening.php';
+require_once INCEPTION_KIT_DIR . 'admin.php';
+
+/** Content-hash ?ver=, for the reason inception_terminal_version() gives. */
+function inception_kit_version( $relative ) {
+	$path = INCEPTION_KIT_DIR . $relative;
+	return is_readable( $path ) ? substr( md5_file( $path ), 0, 12 ) : INCEPTION_KIT_VERSION;
+}
 
 function inception_kit_assets() {
 	wp_enqueue_style(
 		'inception-kit',
 		INCEPTION_KIT_URL . 'assets/kit.css',
 		array(),
-		INCEPTION_KIT_VERSION
+		inception_kit_version( 'assets/kit.css' )
 	);
 	wp_enqueue_script(
 		'inception-kit',
 		INCEPTION_KIT_URL . 'assets/kit.js',
 		array(),
-		INCEPTION_KIT_VERSION,
+		inception_kit_version( 'assets/kit.js' ),
 		true
 	);
 }

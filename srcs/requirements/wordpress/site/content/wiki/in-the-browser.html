@@ -1,0 +1,182 @@
+<h2>5a. Running directly on the machine you&#39;re browsing from</h2>
+<p>Just open your browser at the site and admin URLs (see §4 if you changed <code>LOGIN</code> in the <code>Makefile</code> — the domain would then be <code>&lt;your-login&gt;.42.fr</code> instead):</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Page</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Landing</strong></td>
+<td><code>https://dlesieur.42.fr</code> (see §5c)</td>
+</tr>
+<tr>
+<td><strong>Deeper</strong></td>
+<td><code>https://dlesieur.42.fr/deeper/</code> (see §5c)</td>
+</tr>
+<tr>
+<td><strong>Blog and wiki</strong> (WordPress)</td>
+<td><code>https://dlesieur.42.fr/blog/</code>, <code>https://dlesieur.42.fr/wiki/</code></td>
+</tr>
+<tr>
+<td><strong>Admin panel</strong></td>
+<td><code>https://dlesieur.42.fr/wp-admin</code></td>
+</tr>
+<tr>
+<td><strong>Landing on its bonus port</strong></td>
+<td><code>http://dlesieur.42.fr:8090</code></td>
+</tr>
+</tbody></table>
+</div>
+<p>Log in with the admin username from <code>srcs/.env</code> (<code>WP_ADMIN_USER</code>) or its email (<code>WP_ADMIN_EMAIL</code>), and the password from <code>secrets/credentials.txt</code> (first line). The landing&#39;s <em>Sign in</em> leads there too. Deployed with born2root, <code>make inception</code> writes that email and password from <code>INCEPTION_ADMIN_EMAIL</code> and <code>INCEPTION_ADMIN_PASSWORD</code> in its own secrets file, so a rebuilt machine keeps the same account. There is no public sign-up and no reset by email: to change the password, change the secret and redeploy.</p>
+<p>You&#39;ll get a certificate warning (<code>NET::ERR_CERT_AUTHORITY_INVALID</code> / &quot;Your connection is not private&quot;) the first time — this is expected, because the certificate is issued by a <em>local</em> certificate authority your browser doesn&#39;t know yet, not a public one. Either:</p>
+<ul>
+<li>click through the warning once (&quot;Advanced&quot; → &quot;Proceed anyway&quot;), or</li>
+<li>run <code>make trust</code> — it installs the local CA into your system and browser trust stores (covers Firefox and Chromium, including their Snap/Flatpak variants), so the padlock shows as fully valid afterwards. Close and reopen your browser after running it.</li>
+</ul>
+<h2>5b. Running <strong>inside a virtual machine</strong>, viewed from the <strong>host</strong></h2>
+<p>This is a common setup: Inception runs inside a VM (VirtualBox, in this case), but you want to see the website in a browser on your physical host machine. By default a VM&#39;s network is isolated from the host, so this needs a NAT port-forwarding rule — <strong>and that&#39;s all it needs</strong>. <code>wp-config.php</code> is written (§4/§6 in <code>DEV_DOC.md</code>) to serve the site correctly whether it&#39;s reached as <code>dlesieur.42.fr</code>, <code>localhost</code>, or <code>127.0.0.1</code> — so once the port is forwarded, <code>https://localhost:&lt;host-port&gt;</code> just works. No <code>/etc/hosts</code> edit on the host is required, on either OS — useful when you don&#39;t have admin rights on the host machine (e.g. a shared lab computer), since <code>VBoxManage</code>/the VirtualBox GUI configures NAT rules as your normal user, with no <code>sudo</code>/admin needed.</p>
+<p><strong>Step 1 — add a port-forwarding rule.</strong> VirtualBox → select the VM → <em>Settings</em> → <em>Network</em> → <em>Adapter 1</em> → <em>Advanced</em> → <em>Port Forwarding</em>, add a rule (host port is your choice, e.g. <code>8443</code>):</p>
+<p>Four services publish a port, so there are five rules — add only the ones you actually want to reach from the host. The website is the one that matters; the rest are optional.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Protocol</th>
+<th>Host IP</th>
+<th>Host Port</th>
+<th>Guest IP</th>
+<th>Guest Port</th>
+<th>For</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>inception-https</td>
+<td>TCP</td>
+<td>(empty)</td>
+<td><code>8443</code></td>
+<td>(empty)</td>
+<td><code>443</code></td>
+<td>the website</td>
+</tr>
+<tr>
+<td>inception-static</td>
+<td>TCP</td>
+<td>(empty)</td>
+<td><code>8090</code></td>
+<td>(empty)</td>
+<td><code>8090</code></td>
+<td>the static site</td>
+</tr>
+<tr>
+<td>inception-adminer</td>
+<td>TCP</td>
+<td>(empty)</td>
+<td><code>8080</code></td>
+<td>(empty)</td>
+<td><code>8080</code></td>
+<td>the database UI</td>
+</tr>
+<tr>
+<td>inception-ftp</td>
+<td>TCP</td>
+<td>(empty)</td>
+<td><code>21</code></td>
+<td>(empty)</td>
+<td><code>21</code></td>
+<td>FTP control</td>
+</tr>
+<tr>
+<td>inception-ftp-pasv</td>
+<td>TCP</td>
+<td>(empty)</td>
+<td><code>21000-21010</code></td>
+<td>(empty)</td>
+<td><code>21000-21010</code></td>
+<td>FTP passive data</td>
+</tr>
+</tbody></table>
+</div>
+<p>Or from the host&#39;s terminal (works while the VM is running):</p>
+<pre><code class="language-bash">VBoxManage controlvm &quot;&lt;vm-name&gt;&quot; natpf1 &quot;inception-https,tcp,,8443,,443&quot;
+VBoxManage controlvm &quot;&lt;vm-name&gt;&quot; natpf1 &quot;inception-static,tcp,,8090,,8090&quot;
+VBoxManage controlvm &quot;&lt;vm-name&gt;&quot; natpf1 &quot;inception-adminer,tcp,,8080,,8080&quot;
+VBoxManage controlvm &quot;&lt;vm-name&gt;&quot; natpf1 &quot;inception-ftp,tcp,,21,,21&quot;
+</code></pre>
+<p>Only the website&#39;s rule remaps the port (guest <code>443</code> → host <code>8443</code>, because binding host port 443 needs root). Keep the others identical on both sides — in particular the FTP passive range, which must not be remapped: see §10.</p>
+<p><strong>Step 2 — browse from the host, using <code>localhost</code> (not the domain):</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Page</th>
+<th>URL from the host browser</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Website</td>
+<td><code>https://localhost:8443</code></td>
+</tr>
+<tr>
+<td>Admin panel</td>
+<td><code>https://localhost:8443/wp-admin</code></td>
+</tr>
+<tr>
+<td>Bonus static site</td>
+<td><code>http://localhost:8090</code></td>
+</tr>
+</tbody></table>
+</div>
+<p>(Swap <code>localhost</code> for <code>127.0.0.1</code> if you prefer — both work identically; the TLS certificate and <code>wp-config.php</code> cover both.)</p>
+<p>The certificate warning from §5a still applies — the local CA is trusted <em>inside the VM</em> only (<code>make trust</code> runs there), not on the host, so expect the warning in the host browser unless you also import <code>secrets/ca.crt</code> into the host&#39;s trust store.</p>
+<p><strong>If you <em>do</em> have admin rights on the host</strong> and specifically want the real <code>dlesieur.42.fr</code> domain to resolve there too (e.g. to demo the exact grading URL), you can additionally add a host-side <code>/etc/hosts</code> entry — see the box below — but it is optional; everything in this section already works without it.</p>
+<details>
+<summary>Optional: also making <code>dlesieur.42.fr</code> itself resolve on the host</summary><p>Add to the <strong>host&#39;s own</strong> hosts file (<code>/etc/hosts</code> on Linux/macOS, <code>C:\Windows\System32\drivers\etc\hosts</code> on Windows, edited as administrator):</p>
+<pre><code class="language-text">127.0.0.1   dlesieur.42.fr
+</code></pre>
+<p>Or, for a Bridged-Adapter VM (own LAN IP, no port forwarding needed), use the VM&#39;s real IP instead of <code>127.0.0.1</code> and skip the port in the URL below.</p>
+<p>Then browse <code>https://dlesieur.42.fr:8443</code> from the host.</p>
+</details><blockquote>
+<p>If you just want a quick sanity check that the server is reachable, <code>curl</code> works the same way, e.g. from the host: <code>curl -k https://dlesieur.42.fr:8443</code> should return HTML.</p>
+</blockquote>
+<h2>5c. The landing, the blog and the wiki</h2>
+<p><code>https://dlesieur.42.fr/</code> opens on <strong>WordPress&#39;s front page</strong>: the configured site, whose text is the <em>Home</em> page in wp-admin (edit it there and the change is on <code>/</code>). The <strong>landing</strong> is a bonus service of its own (a static React site, no PHP, its own <code>nginx</code> and container) that presents the stack, one link away:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Page</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Front page</strong> (WordPress)</td>
+<td><code>https://dlesieur.42.fr/</code></td>
+</tr>
+<tr>
+<td><strong>Landing</strong></td>
+<td><code>https://dlesieur.42.fr/dream/</code></td>
+</tr>
+<tr>
+<td><strong>Deeper</strong> (the stack as a 3D world you scroll down through)</td>
+<td><code>https://dlesieur.42.fr/deeper/</code></td>
+</tr>
+<tr>
+<td><strong>Blog</strong></td>
+<td><code>https://dlesieur.42.fr/blog/</code></td>
+</tr>
+<tr>
+<td><strong>Wiki</strong></td>
+<td><code>https://dlesieur.42.fr/wiki/</code></td>
+</tr>
+<tr>
+<td><strong>Admin</strong></td>
+<td><code>https://dlesieur.42.fr/wp-admin/</code></td>
+</tr>
+<tr>
+<td><strong>Landing on its bonus port</strong></td>
+<td><code>http://dlesieur.42.fr:8090</code></td>
+</tr>
+</tbody></table>
+</div>
+<p>The landing works without JavaScript and loads nothing from the internet. Deeper needs JavaScript for its world but not for its text; a browser without WebGL gets still frames instead, and the <em>Motion</em> button (or the system&#39;s reduced-motion setting) stops the world moving. If you&#39;re viewing from a VM host (§5b), the same port-forwarding / <code>/etc/hosts</code> steps apply; for the bonus port, forward guest port <code>8090</code> and use <code>http://</code>.</p>
+<hr>

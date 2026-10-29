@@ -1,18 +1,16 @@
-<?php
-?>
 </main>
 
-<footer class="site-footer" role="contentinfo">
-	<div class="shell">
-		<div class="statusbar">
-			<span class="status-seg status-seg-green">[inception]</span>
-			<span class="status-seg">0:nginx</span>
-			<span class="status-seg">1:wordpress<span class="status-active">*</span></span>
-			<span class="status-seg">2:mariadb</span>
-			<span class="status-spacer" aria-hidden="true"></span>
-			<span class="status-seg status-dim">TLS 1.2/1.3 · port 443 only</span>
-			<span class="status-seg status-dim"><?php echo esc_html( gmdate( 'Y' ) ); ?> · dlesieur · 42</span>
-		</div>
+<footer class="site-footer">
+	<div class="shell site-footer-inner">
+		<p class="footer-brand"><?php inception_terminal_totem( 18 ); ?> Inception · dlesieur · 42</p>
+		<ul class="footer-links">
+			<li><a href="<?php echo esc_url( home_url( '/dream/' ) ); ?>">Landing</a></li>
+			<li><a href="<?php echo esc_url( home_url( '/blog/' ) ); ?>">Blog</a></li>
+			<li><a href="<?php echo esc_url( home_url( '/wiki/' ) ); ?>">Wiki</a></li>
+			<li><a href="<?php echo esc_url( home_url( '/lab/' ) ); ?>">Lab</a></li>
+			<li><a href="<?php echo esc_url( admin_url() ); ?>"><?php echo is_user_logged_in() ? 'Dashboard' : 'Sign in'; ?></a></li>
+		</ul>
+		<p class="footer-note">TLS 1.2/1.3 · port 443 only</p>
 	</div>
 </footer>
 

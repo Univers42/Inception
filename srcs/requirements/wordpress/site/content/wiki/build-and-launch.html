@@ -1,0 +1,82 @@
+<pre><code class="language-bash">make          # == make up : setup + build + start
+</code></pre>
+<p>The Makefile is the single orchestrator (subject requirement: it must build the images through <code>docker-compose.yml</code>). <code>make up</code> does, in order:</p>
+<ol>
+<li><code>setup</code> — data dirs, <code>.env</code>, secrets, <code>/etc/hosts</code>, TLS material (§1.2).</li>
+<li><code>docker compose -f srcs/docker-compose.yml up -d --build</code> — builds the three images from their Dockerfiles (in parallel, with BuildKit) and starts the stack; the dependency chain is gated by real healthchecks (§6.4).</li>
+</ol>
+<h2>All Makefile targets</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>make up</code></td>
+<td>Provision + build &amp; start (detached)</td>
+</tr>
+<tr>
+<td><code>make build</code></td>
+<td>Provision + build images only</td>
+</tr>
+<tr>
+<td><code>make down</code> / <code>stop</code> / <code>start</code> / <code>restart</code></td>
+<td>Container lifecycle</td>
+</tr>
+<tr>
+<td><code>make logs</code> / <code>make status</code></td>
+<td>Tail logs / <code>docker compose ps</code></td>
+</tr>
+<tr>
+<td><code>make test</code></td>
+<td>Compliance suite: static + runtime checks</td>
+</tr>
+<tr>
+<td><code>make test-deep</code></td>
+<td>+ crash-restart &amp; down/up persistence checks</td>
+</tr>
+<tr>
+<td><code>make bench</code> / <code>make bench-full</code></td>
+<td>Build (+ boot) benchmarks — <code>bench-full</code> wipes project data</td>
+</tr>
+<tr>
+<td><code>make run_wp</code></td>
+<td>Guided health report: core checksums, users, themes, DB, OPcache</td>
+</tr>
+<tr>
+<td><code>make trust</code></td>
+<td>Install the local CA into system + Chrome/Firefox trust stores</td>
+</tr>
+<tr>
+<td><code>make clean</code></td>
+<td>Remove project containers + volumes + images + host data</td>
+</tr>
+<tr>
+<td><code>make fclean</code></td>
+<td><code>clean</code> + <code>docker system prune -af --volumes</code> (machine-wide!)</td>
+</tr>
+<tr>
+<td><code>make re</code></td>
+<td>Full project rebuild — keeps Docker&#39;s build cache and other projects intact</td>
+</tr>
+<tr>
+<td><code>make test-lab</code></td>
+<td>Lab (web + api) checks; <code>LAB_ARGS=--deep</code> adds SIGTERM drain + late MariaDB</td>
+</tr>
+<tr>
+<td><code>make snapshot</code> / <code>make re-web</code></td>
+<td>Refresh the site&#39;s JSON snapshots from the running API / rebuild only <code>web</code></td>
+</tr>
+<tr>
+<td><code>make lock</code> / <code>make npm-web NPM=…</code> / <code>make npm-api NPM=…</code></td>
+<td>npm inside <code>nodetool:inception</code>, never on the host</td>
+</tr>
+<tr>
+<td><code>make hellish-fetch</code></td>
+<td>Stage the static hellish release binary (checksum verified)</td>
+</tr>
+</tbody></table>
+</div>
+<hr>

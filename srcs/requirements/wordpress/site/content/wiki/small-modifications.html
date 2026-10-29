@@ -1,0 +1,82 @@
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Ask</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Change the domain</td>
+<td><code>DOMAIN_NAME</code> in <code>srcs/.env</code> → <code>make up</code> re-issues the cert; <code>/etc/hosts</code> entry</td>
+</tr>
+<tr>
+<td>Change site title / user names</td>
+<td><code>srcs/.env</code> → <code>make clean &amp;&amp; make</code> (install-time values)</td>
+</tr>
+<tr>
+<td>Add a WP user</td>
+<td><code>docker exec wordpress wp --allow-root user create &lt;login&gt; &lt;email&gt; --role=author</code></td>
+</tr>
+<tr>
+<td>Change upload size</td>
+<td><code>client_max_body_size</code> (nginx conf) <strong>and</strong> <code>conf/uploads.ini</code> (PHP) → rebuild</td>
+</tr>
+<tr>
+<td>Change PHP tuning</td>
+<td><code>conf/www.conf</code> / <code>conf/opcache.ini</code> → rebuild (≤2 s)</td>
+</tr>
+<tr>
+<td>Bump PHP version</td>
+<td>four coupled places: wordpress Dockerfile (packages, paths, healthcheck), <code>www.conf</code> COPY path, entrypoint <code>exec php-fpm84</code>, Makefile <code>run_wp</code></td>
+</tr>
+<tr>
+<td>Add a bonus service</td>
+<td>new <code>srcs/requirements/&lt;svc&gt;/</code> context + service block in compose (own container, own volume if stateful, extra port allowed for bonus)</td>
+</tr>
+<tr>
+<td>Add an API route</td>
+<td><code>bonus/api/app/server.js</code> routes table + a handler; a new cache key goes in <code>cache.js</code> with its own TTL and its invalidation</td>
+</tr>
+<tr>
+<td>Change what the machine room shows</td>
+<td><code>bonus/web/app/src/components/hero/Daemons.ts</code> (events, gags), <code>sprites.ts</code> (art) → <code>make re-web</code></td>
+</tr>
+<tr>
+<td>Add a wire to the machine room</td>
+<td>API: <code>bonus/api/app/traffic.js</code> (<code>WIRES</code>, plus a recorder or a sampler); web: <code>lib/wires.ts</code> (same id, a lane where it overlaps no other wire) → rebuild both</td>
+</tr>
+<tr>
+<td>Refresh the site&#39;s build-time data</td>
+<td><code>make snapshot &amp;&amp; make re-web</code></td>
+</tr>
+<tr>
+<td>Bump Astro or mysql2</td>
+<td><code>package.json</code> → <code>make lock</code> → rebuild</td>
+</tr>
+<tr>
+<td>Change a colour or a font, landing and blog at once</td>
+<td><code>srcs/design/tokens.css</code> (and <code>fonts/</code>) → <code>make up</code>; both images copy it</td>
+</tr>
+<tr>
+<td>Change the front page&#39;s text (<code>/</code>)</td>
+<td>wp-admin → Pages → <em>Home</em>; <code>front-page.php</code> renders it, and nothing on boot writes over an edit</td>
+</tr>
+<tr>
+<td>Change the landing&#39;s words or numbers</td>
+<td><code>bonus/staticsite/app/src/content.ts</code> → <code>make up</code></td>
+</tr>
+<tr>
+<td>Change Deeper&#39;s words, or a level of its world</td>
+<td><code>bonus/staticsite/world/src/content.ts</code>, <code>world/src/engine/levels/</code> → <code>make up</code> (re-render the posters, §11.1)</td>
+</tr>
+<tr>
+<td>Add, drop or bump a WordPress plugin</td>
+<td><code>wordpress/site/plugins.txt</code> (<code>slug version</code>) → <code>make up</code>; <code>make test-site</code> checks the pins</td>
+</tr>
+<tr>
+<td>Change the wiki</td>
+<td>edit the doc section it is cut from (or <code>tools/wiki/wiki.json</code> for the tree) → <code>make wiki</code> → <code>make up</code></td>
+</tr>
+</tbody></table>
+</div>
+<hr>

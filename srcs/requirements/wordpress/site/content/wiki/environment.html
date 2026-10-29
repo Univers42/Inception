@@ -1,0 +1,106 @@
+<h2>1.1 Prerequisites</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Requirement</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Docker Engine ≥ 24 (25+ recommended)</td>
+<td><code>docker --version</code> — 25+ enables fast-startup healthchecks (<code>start-interval</code>)</td>
+</tr>
+<tr>
+<td>Docker Compose v2 plugin</td>
+<td><code>docker compose version</code></td>
+</tr>
+<tr>
+<td>GNU Make ≥ 4</td>
+<td><code>make --version</code></td>
+</tr>
+<tr>
+<td><code>openssl</code> on the host</td>
+<td>secrets + TLS certificate generation</td>
+</tr>
+<tr>
+<td><code>sudo</code> access</td>
+<td>needed for <code>/etc/hosts</code> and data-dir cleanu</td>
+</tr>
+</tbody></table>
+</div>
+<h2>1.2 Configuration files and secrets</h2>
+<p>Nothing is required up front: <code>make setup</code> (run automatically by <code>make up</code>) provisions every missing piece and <strong>never overwrites existing files</strong>:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>File</th>
+<th>Provisioning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>srcs/.env</code></td>
+<td>generated from <code>.env.example</code> with the login substituted</td>
+</tr>
+<tr>
+<td><code>secrets/db_password.txt</code></td>
+<td>random 24-byte password</td>
+</tr>
+<tr>
+<td><code>secrets/db_root_password.txt</code></td>
+<td>random 24-byte password</td>
+</tr>
+<tr>
+<td><code>secrets/credentials.txt</code></td>
+<td>two random lines (1 = WP admin pw, 2 = editor pw)</td>
+</tr>
+<tr>
+<td><code>secrets/ca.key</code> / <code>ca.crt</code></td>
+<td>local Root CA (10 years)</td>
+</tr>
+<tr>
+<td><code>secrets/server.key</code> / <code>server.crt</code></td>
+<td>server cert signed by the CA, SAN = <code>DOMAIN_NAME</code></td>
+</tr>
+</tbody></table>
+</div>
+<p>To use custom passwords, create the three <code>.txt</code> files yourself before the first <code>make</code>. To change the domain, edit <code>DOMAIN_NAME</code> in <code>srcs/.env</code> — the next <code>make up</code> re-issues the server certificate automatically (its SAN is checked against the env file).</p>
+<p>Key variables in <code>srcs/.env</code>:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DOMAIN_NAME</code></td>
+<td>Your 42 login domain</td>
+<td><code>dlesieur.42.fr</code></td>
+</tr>
+<tr>
+<td><code>MYSQL_DATABASE</code></td>
+<td>WordPress DB name</td>
+<td><code>wordpress</code></td>
+</tr>
+<tr>
+<td><code>MYSQL_USER</code></td>
+<td>DB application user</td>
+<td><code>wpuser</code></td>
+</tr>
+<tr>
+<td><code>WP_ADMIN_USER</code></td>
+<td>WP admin login (<strong>must not contain &quot;admin&quot;</strong> — enforced at boot)</td>
+<td><code>superuser</code></td>
+</tr>
+<tr>
+<td><code>WP_USER</code></td>
+<td>Regular WP user (editor role)</td>
+<td><code>editor</code></td>
+</tr>
+</tbody></table>
+</div>
+<blockquote>
+<p><strong>Security:</strong> <code>secrets/</code> and <code>srcs/.env</code> are git-ignored. The CA private key never enters any container — nginx only receives the server cert + key as Docker secrets.</p>
+</blockquote>
+<hr>

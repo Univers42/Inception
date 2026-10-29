@@ -1,0 +1,38 @@
+<p>Subject&#39;s bonus list, item 3: <em>&quot;Create a simple static website in the language of your choice except PHP.&quot;</em> Here it is the <strong>landing</strong> of the whole project at <code>https://&lt;login&gt;.42.fr/dream/</code> (the bare <code>/</code> stays WordPress&#39;s front page, §13.1), in React with framer-motion, server-rendered at build time, and <strong>Deeper</strong> at <code>/deeper/</code>, the same three levels as a world you walk down through (React + three.js). They are separate services from WordPress, not pages rendered by it.</p>
+<pre><code class="language-text">srcs/requirements/bonus/staticsite/
+├── Dockerfile        # build stage: alpine + nodejs/npm, `npm ci` from the lockfile,
+│                     #   `npm run build`; runtime stage: alpine + nginx only
+├── conf/nginx.conf   # 8090: / and /_dream/, /deeper/ and /deeper/_world/ (hashed
+│                     #   assets, cached a year); any other path → 302 over HTTPS
+├── tools/entrypoint.sh
+├── app/              # the landing: Vite + React + Tailwind + framer-motion
+│   ├── src/content.ts    # every fact the page states, sourced from this file
+│   └── prerender.mjs     # bakes the server render into index.html
+└── world/            # Deeper: Vite + React + three.js, its own build stage
+    ├── src/content.ts    # the chapters&#39; words, copied from the landing&#39;s facts
+    ├── src/engine/       # the world: levels/, mesher (worker), material, lamps,
+    │                     #   life (traffic, motes, shafts, birds), transition
+    └── src/assets/       # posters, the link card and the film: frames of the world
+</code></pre>
+<ul>
+<li><strong>Design:</strong> &quot;dream levels&quot;. The page scrolls through a pinned stage three screens tall: level 1 is nginx (the door), level 2 WordPress and php-fpm, level 3 MariaDB (limbo). The scroll position picks the level, so nothing hijacks the wheel or the keyboard, and each level is a plain anchor (<code>#level-1</code>..<code>#level-3</code>). The layout and the motion spec come from the motionsites.ai &quot;Orbit Engineers&quot; and &quot;Synapse&quot; prompts; their CDN videos and fonts are replaced by three canvas scenes and self-hosted fonts, so the page makes <strong>no third-party request</strong> (<code>make test-site</code>, S03).</li>
+<li><strong>Without JavaScript</strong> the page is complete: the HTML is prerendered and the reveal animations are switched off by a <code>js</code> class the page sets itself. Under <code>prefers-reduced-motion</code> the scenes freeze on one frame.</li>
+<li><strong>Routing:</strong> the edge proxies <code>/dream/</code> (to the staticsite&#39;s own <code>/</code>) and <code>/_dream/</code> to <code>staticsite:8090</code> (§13.1); the bare <code>/</code> is WordPress&#39;s. On the bonus port itself, any other path is redirected to HTTPS.</li>
+<li><strong>No node at runtime:</strong> node and npm exist only in the build stage; the image that runs is nginx and the built files (<code>make test-site</code>, S13). The lockfile is resolved inside the nodetool image (<code>make lock</code>), so it carries the musl binaries Vite and Tailwind need on Alpine.</li>
+<li><strong>Container:</strong> <code>staticsite</code>, image <code>staticsite:inception</code>, still published on <code>8090</code> as the bonus asks (compliance B03).</li>
+<li><strong>Editing:</strong> change anything under <code>app/</code> (or the tokens in <code>srcs/design/</code>), then <code>make up</code>. <code>npm run dev</code> in <code>app/</code> previews it with live reload.</li>
+</ul>
+<p><strong>Deeper (<code>/deeper/</code>).</strong> Scrolling walks a camera down through the stack: the avenue of a city that folds up over you (nginx), a hotel corridor that turns (WordPress), the shore of limbo with its drowned towers (MariaDB), and the kick. The text sits on plates over the world and is all in the prerendered HTML.</p>
+<ul>
+<li><strong>Engine:</strong> vanilla three.js, loaded after the page is idle. Each level is a voxel grid, greedy-meshed in a Web Worker. One shader lights everything: sky, ground and key per vertex, then per pixel the 12 nearest lamps (<code>engine/lamps.ts</code>), Fresnel reflections on glass and brass, and fog that brightens toward the light. Lamps, traffic, motes, the corridor&#39;s light shafts and limbo&#39;s birds all move in vertex shaders from one time uniform.</li>
+<li><strong>Three tiers</strong>, chosen by <code>engine/probe.ts</code>:<ul>
+<li><em>GPU:</em> bloom, a neutral tone map and the crossing pass (an iris and a zoom-blur rush into the corridor, a white flood into limbo). It is always alive while the page is visible: idle at 1440×900 on an Intel Iris Xe it measured 54–57 fps, and 46 in the fold. A governor lowers the resolution when frames are slower than 40 fps.</li>
+<li><em>Software</em> (SwiftShader, llvmpipe): no bloom, 4 lamps, CSS veils, and it draws only while the camera moves.</li>
+<li><em>None:</em> no WebGL (Chrome without a GPU). Four still frames of the world, drifting slowly.</li>
+</ul>
+</li>
+<li><strong>Posters, link card, film:</strong> frames of the world itself, not stock footage: <code>src/assets/poster-*.webp</code> (1600×1000), <code>og-card.jpg</code> (1200×630) and <code>descent.mp4</code>. The film is the canvas recorded with MediaRecorder while a script scrolls at a fixed pace (26 s), then transcoded to H.264 with an Alpine ffmpeg. It came out at 960×540: during capture the governor stepped the resolution down. Re-render all of them after changing a level. Only the city poster loads on the GPU tier; the <code>og:</code> tags are written with paths, and the staticsite nginx makes them absolute with the request&#39;s host (<code>sub_filter</code>).</li>
+<li><strong>Motion:</strong> the <em>Motion</em> button and <code>prefers-reduced-motion</code> stop the world on one frame per chapter and remove the sway, the flicker and the crossings. There is no scrollbar; a depth gauge on the right replaces it, with one link per chapter.</li>
+<li><strong>Editing:</strong> <code>world/src/engine/levels/</code> shapes the levels, <code>world.ts</code> holds palettes, lights and bloom per scene. <code>npm run dev</code> in <code>world/</code> previews it (WordPress&#39;s posts come through its <code>/wp-json</code> proxy). <code>make test-site</code> S22 checks the route, the prerender and that nothing loads from another host.</li>
+</ul>
+<hr>

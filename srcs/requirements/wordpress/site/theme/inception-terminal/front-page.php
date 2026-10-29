@@ -1,114 +1,60 @@
 <?php
+/**
+ * The front page: what https://<login>.42.fr/ opens on.
+ *
+ * It is WordPress's own page on purpose. The evaluation opens the bare domain
+ * expecting "the configured WordPress website", then edits a page in wp-admin
+ * and looks for the change on the site, so the Home page's title and content
+ * are the hero here, rendered as written. The landing (bonus staticsite) and
+ * Deeper are links, never the page itself.
+ */
 get_header();
-
-$has_kit = function_exists( 'inception_kit_icon' );
-?>
-
-<section class="session" aria-labelledby="site-title">
-	<div class="shell">
-		<div class="session-rail" aria-hidden="true"><span>tty0 · inception</span></div>
-
-		<div class="session-body" data-boot>
-			<pre class="banner boot-line" aria-hidden="true">
-██╗███╗   ██╗ ██████╗███████╗██████╗ ████████╗██╗ ██████╗ ███╗   ██╗
-██║████╗  ██║██╔════╝██╔════╝██╔══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║
-██║██╔██╗ ██║██║     █████╗  ██████╔╝   ██║   ██║██║   ██║██╔██╗ ██║
-██║██║╚██╗██║██║     ██╔══╝  ██╔═══╝    ██║   ██║██║   ██║██║╚██╗██║
-██║██║ ╚████║╚██████╗███████╗██║        ██║   ██║╚██████╔╝██║ ╚████║
-╚═╝╚═╝  ╚═══╝ ╚═════╝╚══════╝╚═╝        ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝</pre>
-
-			<h1 id="site-title" class="session-echo boot-line">
-				<span class="echo-dim">·</span> a production-style WordPress infrastructure, built from scratch —
-				three containers, one door, TLS only<span class="echo-dim">.</span>
-			</h1>
-
-			<div class="session-run boot-line">
-				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; ?><span class="run-cmd">make up</span>
-			</div>
-			<pre class="session-out boot-line"><span class="out-ok">✔ mariadb    healthy</span>   <span class="out-t">3.9s</span>
-<span class="out-ok">✔ wordpress  healthy</span>   <span class="out-t">6.1s</span>
-<span class="out-ok">✔ nginx      started</span>   <span class="out-t">6.3s</span>
-<span class="out-go">→ live at https://dlesieur.42.fr</span>  <span class="out-t">tls 1.2/1.3 · port 443 only</span></pre>
-
-			<div class="session-run boot-line">
-				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; ?><span class="run-cmd">make bench</span>
-			</div>
-			<pre class="session-out boot-line">cold build <span class="out-num">13s</span>   fresh boot <span class="out-num">7s</span>   compliance <span class="out-num">40/41</span>   images <span class="out-num">420MB</span></pre>
-
-			<div class="session-aliases boot-line">
-				<a class="alias" href="<?php echo esc_url( home_url( '/user-guide/' ) ); ?>">[ user guide ]</a>
-				<a class="alias" href="<?php echo esc_url( home_url( '/developer-guide/' ) ); ?>">[ dev guide ]</a>
-				<a class="alias alias-dim" href="<?php echo esc_url( home_url( '/defense-qa/' ) ); ?>">[ defense q&amp;a ]</a>
-			</div>
-
-			<div class="session-run boot-line session-idle">
-				<?php echo $has_kit ? inception_kit_prompt( '~' ) : '$'; ?><span class="boot-caret" aria-hidden="true"></span>
-			</div>
-		</div>
+while ( have_posts() ) :
+	the_post();
+	?>
+<section class="page-hero shell">
+	<p class="eyebrow">Inception · <?php echo esc_html( wp_parse_url( home_url(), PHP_URL_HOST ) ); ?></p>
+	<h1 class="display"><?php the_title(); ?></h1>
+	<div class="front-content prose">
+		<?php the_content(); ?>
 	</div>
+	<p class="front-actions">
+		<a class="btn btn-primary" href="<?php echo esc_url( home_url( '/blog/' ) ); ?>">Read the blog</a>
+		<a class="btn btn-ghost" href="<?php echo esc_url( home_url( '/wiki/' ) ); ?>">Open the wiki</a>
+		<a class="btn btn-ghost" href="<?php echo esc_url( home_url( '/dream/' ) ); ?>">Dream levels</a>
+		<a class="btn btn-ghost" href="<?php echo esc_url( home_url( '/deeper/' ) ); ?>">Go deeper</a>
+	</p>
 </section>
+	<?php
+endwhile;
 
-<section class="home-docs" aria-label="Documentation index">
-	<div class="shell">
-		<h2 class="section-title"><span class="section-prompt">$</span> ls -la ./docs</h2>
-		<div class="lsla" role="list">
-			<div class="lsla-head" aria-hidden="true">
-				<span class="lsla-perm">mode</span><span class="lsla-size">read</span><span class="lsla-date">updated</span><span class="lsla-name">name</span>
-			</div>
-			<?php
-			$docs = array(
-				array( 'user-guide', 'user-guide/', 'start, stop, credentials, health — the operator manual' ),
-				array( 'developer-guide', 'developer-guide/', 'setup, Makefile, entrypoints, good practices' ),
-				array( 'architecture', 'architecture/', 'three containers, one bridge, named volumes, secrets' ),
-				array( 'benchmarks', 'benchmarks/', 'the performance story, with honest numbers' ),
-				array( 'defense-qa', 'defense-qa/', 'every evaluator question, with proof commands' ),
-			);
-			foreach ( $docs as $doc ) :
-				list( $slug, $label, $blurb ) = $doc;
-				$p    = get_page_by_path( $slug, OBJECT, 'page' );
-				$mins = ( $p && function_exists( 'inception_kit_reading_time' ) ) ? inception_kit_reading_time( $p ) : 2;
-				$date = $p ? get_post_modified_time( 'Y-m-d', false, $p ) : gmdate( 'Y-m-d' );
-				?>
-			<a class="lsla-row" role="listitem" href="<?php echo esc_url( home_url( '/' . $slug . '/' ) ); ?>">
-				<span class="lsla-perm" aria-hidden="true">drwxr-xr-x</span>
-				<span class="lsla-size"><?php echo (int) $mins; ?> min</span>
-				<span class="lsla-date"><?php echo esc_html( $date ); ?></span>
-				<span class="lsla-name"><?php echo esc_html( $label ); ?><span class="lsla-blurb"><?php echo esc_html( $blurb ); ?></span></span>
-				<span class="lsla-go" aria-hidden="true">→</span>
-			</a>
-			<?php endforeach; ?>
-		</div>
-	</div>
+$inception_latest = new WP_Query(
+	array(
+		'post_type'           => 'post',
+		'posts_per_page'      => 3,
+		'ignore_sticky_posts' => true,
+		'no_found_rows'       => true,
+	)
+);
+if ( $inception_latest->have_posts() ) :
+	?>
+<section class="shell front-latest" aria-labelledby="front-latest-title">
+	<h2 id="front-latest-title" class="eyebrow">Latest from the blog</h2>
+	<ol class="post-grid">
+		<?php
+		while ( $inception_latest->have_posts() ) :
+			$inception_latest->the_post();
+			?>
+			<li class="post-card reveal">
+				<?php inception_terminal_post_meta( null, false ); ?>
+				<h3 class="post-card-title"><a class="card-link" href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h3>
+				<p class="post-card-excerpt"><?php echo esc_html( get_the_excerpt() ); ?></p>
+				<span class="more" aria-hidden="true">Read the post →</span>
+			</li>
+		<?php endwhile; ?>
+	</ol>
 </section>
-
-<section class="home-journal" aria-label="Latest journal entries">
-	<div class="shell">
-		<h2 class="section-title"><span class="section-prompt">$</span> tail -n 3 journal.log</h2>
-		<div class="loglist">
-			<?php
-			$latest = new WP_Query(
-				array(
-					'posts_per_page'      => 3,
-					'ignore_sticky_posts' => true,
-				)
-			);
-			while ( $latest->have_posts() ) :
-				$latest->the_post();
-				?>
-			<a class="logline" href="<?php the_permalink(); ?>">
-				<span class="log-ts"><?php echo esc_html( get_the_date( 'Y-m-d\TH:i' ) ); ?></span>
-				<span class="log-level" aria-hidden="true">[post]</span>
-				<span class="log-title"><?php the_title(); ?></span>
-				<span class="log-meta"><?php echo function_exists( 'inception_kit_reading_time' ) ? (int) inception_kit_reading_time() . ' min' : ''; ?></span>
-			</a>
-			<?php endwhile; ?>
-			<?php wp_reset_postdata(); ?>
-			<a class="logline logline-follow" href="<?php echo esc_url( home_url( '/journal/' ) ); ?>">
-				<span class="log-ts" aria-hidden="true">·······</span>
-				<span class="log-follow">follow the full log →</span>
-			</a>
-		</div>
-	</div>
-</section>
-
-<?php get_footer(); ?>
+	<?php
+	wp_reset_postdata();
+endif;
+get_footer();

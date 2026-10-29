@@ -1,0 +1,21 @@
+<p>Inception has to run inside a virtual machine. Ours is not a hand-installed one: it comes from born2root, a builder for the 42 <em>Born2beRoot</em> server, so the machine under the stack can be thrown away and rebuilt identically with one command.</p>
+
+<h2>What the machine is</h2>
+<p>A Debian server with the Born2beRoot rules applied from the first boot: SSH on port 4242 and no root login over it, a firewall (UFW) that opens only the declared ports, a strict password policy and <code>sudo</code> rules, AppArmor, and a monitoring script run by cron. The disk is encrypted with LUKS and split with LVM into separate volumes, so <code>/var</code>, where Docker keeps its images, can grow without starving <code>/home</code>.</p>
+
+<h2>How it is built</h2>
+<pre class="mermaid">flowchart LR
+    accTitle: How the virtual machine is built
+    accDescr: A preseeded netinst ISO carries the answers and scripts for an unattended install on LUKS and LVM. At boot the host types the LUKS passphrase. First boot sets up the firewall, Docker and the tools, and the machine is ready once its SSH banner answers on port 4242.
+    iso["Preseeded ISO&lt;br/&gt;netinst + answers + scripts"] --&gt; install["Unattended install&lt;br/&gt;LUKS + LVM"]
+    install --&gt; unlock["Boot: the host types&lt;br/&gt;the LUKS passphrase"]
+    unlock --&gt; first["First boot&lt;br/&gt;firewall, Docker, tools"]
+    first --&gt; ready["SSH banner on 4242&lt;br/&gt;ssh b2b"]</pre>
+<p>Every answer the Debian installer would ask for is in a preseed file that is built into the ISO. The install runs with no screen: the machine's serial console is a file the host reads to follow progress. At each boot the disk is locked, and the host unlocks it by typing the passphrase into the machine's virtual keyboard. A machine counts as ready when its SSH server answers with a banner, not when a port is open: the hypervisor's NAT accepts connections whether or not anything listens behind it.</p>
+
+<h2>Sized from one number</h2>
+<p><code>SIZE_B2B</code>, in GB, decides the partition layout. Every volume has a floor, a share and a cap, and <code>/var</code> takes the rest. It also decides which tools fit: under 15 GB a minimal set, from 15 the standard one, from 30 the full one. A set that does not fit stops the build and names the smallest size that would hold it. Memory and CPUs default to a share of the host's, and a number larger than the host has falls back to that default, rather than to a machine that never starts.</p>
+
+<h2>Two hypervisors, one guest</h2>
+<p>born2root runs the same ISO on QEMU/KVM or on VirtualBox and picks one by what the host offers (<code>make backend</code> prints the decision and its reasons). Ports are forwarded from the host to the guest from one list, so SSH, HTTPS and the bonus ports reach the machine the same way on either.</p>
+[callout type="ok" title="why it matters"]Because the machine is rebuilt from code, a broken guest is never repaired by hand: <code>make re</code> destroys it and builds it again, and <code>make inception</code> puts the stack back on top.[/callout]

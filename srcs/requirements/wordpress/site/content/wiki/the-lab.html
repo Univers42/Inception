@@ -1,0 +1,16 @@
+<p>Two more containers, same rules as every other service: own Dockerfile on <code>alpine:3.23</code>, own healthcheck, a real daemon as PID 1, no published port. nginx is the only way in.</p>
+<pre class="mermaid">flowchart LR
+    accTitle: How nginx routes each path
+    accDescr: The browser connects to nginx over TLS on port 443. nginx sends /dream/, /_dream/ and /deeper/ to the landing and Deeper on staticsite:8090, /lab/ to web:8080, /api/v1/ to api:3000, and everything else to WordPress on port 9000 over FastCGI. The lab API uses the lab database on mariadb:3306, and redis:6379 for cache, counters and rate limits.
+    browser([Browser]) --&gt;|"TLS :443"| nginx
+    nginx --&gt;|"/dream/, /_dream/ and /deeper/, http"| staticsite["staticsite:8090&lt;br/&gt;the landing and Deeper"]
+    nginx --&gt;|"everything else, FastCGI"| wordpress["wordpress:9000&lt;br/&gt;blog, wiki, wp-admin"]
+    nginx --&gt;|"/lab/, http"| web["web:8080&lt;br/&gt;static files"]
+    nginx --&gt;|"/api/v1/, http"| api["api:3000&lt;br/&gt;JSON"]
+    api --&gt;|"database lab, user labuser"| mariadb[("mariadb:3306")]
+    api --&gt;|"cache, counters, rate limits"| redis[("redis:6379")]</pre>
+<ul>
+<li><strong><code>web</code></strong> (<code>srcs/requirements/bonus/web/</code>). An Astro 5 site rendered to HTML at image build time, served by an unprivileged nginx (<code>USER nginx</code>, pid and temp files in <code>/tmp</code>). The runtime image has no node, no npm and no <code>node_modules</code>: 12.8 MB.</li>
+<li><strong><code>api</code></strong> (<code>srcs/requirements/bonus/api/</code>). <code>node:http</code> with no framework. The only runtime dependency is <code>mysql2</code>; the Redis client is hand-written RESP2 over <code>node:net</code> (<code>app/redis.js</code>). It starts as root to read the secret, then drops to the <code>api</code> user (uid 1001). Image 86.2 MB.</li>
+<li><strong>The machine room</strong> (<code>/lab/</code>). A pixel-art diorama of the stack on one <code>&lt;canvas&gt;</code>, driven by <code>/api/v1/stats</code>. Its design contract is <code>srcs/requirements/bonus/web/DESIGN.md</code>.</li>
+</ul>

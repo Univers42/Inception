@@ -1,0 +1,31 @@
+<p>Ten containers, one Compose file, one network. The rules below are the reason the stack starts the same way every time, and they are all checked by the test suite rather than trusted.</p>
+
+<h2>Built, not pulled</h2>
+<p>Every image has its own Dockerfile, and every Dockerfile starts <code>FROM alpine:3.23.7</code>. No image comes ready-made from a registry and no tag says <code>latest</code>, so a build today and a build next month start from the same base. Images carry only what they run: there is no database client in the WordPress image, and the MariaDB image drops more than 100 MB of binaries it never uses.</p>
+
+<h2>One daemon, as PID 1</h2>
+<p>Each container runs one service, started through an entrypoint script that follows the same four steps:</p>
+<ol>
+<li><strong>Fail fast:</strong> <code>set -eu</code>, every required variable checked, every secret file checked non-empty.</li>
+<li><strong>Initialise once:</strong> the first-boot work runs behind a guard, and the guard is written only after it succeeded, so a boot killed half-way simply starts over.</li>
+<li><strong>Wait with a limit:</strong> WordPress waits for MariaDB for 60 seconds at most, then exits and lets the restart policy try again. No <code>tail -f</code>, no <code>sleep infinity</code>, no endless loop.</li>
+<li><strong><code>exec</code> the daemon:</strong> it becomes PID 1, receives <code>docker stop</code>'s signal itself, and no shell is left in front of it.</li>
+</ol>
+
+<h2>Started in order, by health</h2>
+<pre class="mermaid">flowchart LR
+    accTitle: Which container waits for which
+    accDescr: WordPress starts after mariadb and redis, and nginx after WordPress. adminer waits for mariadb, dbbackup for mariadb and WordPress, and the lab API for mariadb and redis.
+    mariadb[("mariadb")] --&gt; wordpress
+    redis[("redis")] --&gt; wordpress
+    wordpress --&gt; nginx
+    mariadb --&gt; adminer
+    mariadb --&gt; dbbackup
+    wordpress --&gt; dbbackup
+    mariadb --&gt; api
+    redis --&gt; api</pre>
+<p>An arrow reads "is healthy before". Every service has a healthcheck, and <code>depends_on</code> waits for <code>service_healthy</code>, not for a container that has merely started. With checks polled twice a second during start-up, the whole stack goes from <code>docker compose up</code> on empty volumes to a live HTTPS WordPress in about seven seconds (the journal post <em>Seven-second boots</em> has the measurement).</p>
+
+<h2>Data in volumes, passwords in files</h2>
+<p>The database and the WordPress files live in named volumes whose data sits in <code>/home/dlesieur/data</code>; no service bind-mounts a host path. They survive <code>make down</code>, <code>make up</code> and reboots. Passwords never travel as environment variables: they are Docker secrets, mounted as files in <code>/run/secrets</code> and readable by root only, so <code>docker inspect</code> shows none of them.</p>
+[callout type="info" title="the mindset"]Each rule removes a way for the stack to behave differently from one start to the next. The same Dockerfile, the same order, the same files: the defense is a demonstration, not a hope.[/callout]

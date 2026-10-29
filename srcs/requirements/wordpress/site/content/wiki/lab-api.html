@@ -1,0 +1,101 @@
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Cache-Control</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>GET /api/v1/</code></td>
+<td><code>no-store</code></td>
+<td>lists the routes</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/healthz</code></td>
+<td><code>no-store</code></td>
+<td>200 when MariaDB and Redis answer, else 503 with which one failed</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/flights</code></td>
+<td><code>public, max-age=5</code></td>
+<td>last 100, cache-aside, <code>X-Cache: HIT</code> or <code>MISS</code></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/flights/:id</code></td>
+<td><code>public, max-age=30</code></td>
+<td>cache-aside</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/flights</code></td>
+<td><code>no-store</code></td>
+<td>201 + <code>Location</code>; rate-limited</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/guestbook</code></td>
+<td><code>no-store</code></td>
+<td>last 50, cache-aside</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/guestbook</code></td>
+<td><code>no-store</code></td>
+<td>201; rate-limited</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/stats</code></td>
+<td><code>no-store</code></td>
+<td>counters + gauges that drive the machine room</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/traffic</code></td>
+<td><code>no-store</code></td>
+<td>Server-Sent Events, the wires (§13.5); 4 streams per address, 64 in all</td>
+</tr>
+</tbody></table>
+</div>
+<p><strong>Errors</strong> always have one shape, <code>{&quot;error&quot;:{&quot;code&quot;,&quot;message&quot;,&quot;field?&quot;}}</code>. Validation is an allowlist. An unknown field is a 422 <code>unknown_field</code> naming it, and every other 422 names the field it rejects. A wrong method gets a 405 with an <code>Allow</code> header, a non-JSON body a 415, and more than 16 KB a 413.</p>
+<p><strong>Cache keys.</strong> The TTL is set per entity, never globally. The <code>v1</code> suffix lets a shape change ship without a flush.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Key</th>
+<th>TTL</th>
+<th>Invalidated by</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>lab:flights:all:v1</code></td>
+<td>60 s</td>
+<td>every POST /flights; a minute tick that moves a flight</td>
+</tr>
+<tr>
+<td><code>lab:flights:&lt;id&gt;:v1</code></td>
+<td>300 s</td>
+<td>creating that flight; a minute tick that moves it</td>
+</tr>
+<tr>
+<td><code>lab:guestbook:recent:v1</code></td>
+<td>10 s</td>
+<td>every POST /guestbook</td>
+</tr>
+<tr>
+<td><code>lab:stats:tables:v1</code></td>
+<td>5 s</td>
+<td>every write</td>
+</tr>
+<tr>
+<td><code>lab:stats:&lt;counter&gt;</code></td>
+<td>none</td>
+<td>not a cache: the durable copy is <code>lab.stats</code> in MariaDB</td>
+</tr>
+<tr>
+<td><code>lab:rl:&lt;bucket&gt;:&lt;ip&gt;</code></td>
+<td>the window</td>
+<td>fixed window; fails open if Redis is down</td>
+</tr>
+</tbody></table>
+</div>
+<p><strong>Counters.</strong> Each event is <code>INCRBY</code> in Redis (hot) and a local delta. Every 2 s the deltas are added to <code>lab.stats</code> in MariaDB (durable), then Redis is reconciled upward. A Redis restart can make a counter briefly low, never permanently.</p>
+<p><strong>Rate limits.</strong> Flights allow 10 per minute per address, the guestbook 5. The count happens before validation, so invalid requests use up the window too. The address comes from nginx&#39;s <code>X-Real-IP</code>.</p>
+<p><strong>Minute tick.</strong> The API&#39;s own timer runs on every minute boundary. It moves flights from boarding to en-route after 30 s and to landed after 3 min, and it deletes the list key and each moved flight&#39;s key.</p>
+<p><strong>Lifecycle.</strong> The entrypoint waits for MariaDB (at most 90 s) and Redis (at most 30 s) with bounded <code>nc -z</code> loops, then runs <code>exec node</code>. Inside, a pool with capped backoff absorbs a database that accepts TCP before it accepts logins. On SIGTERM the API stops accepting and closes idle keep-alive sockets. It then waits up to 10 s for in-flight requests, flushes the counters, closes the pool and Redis, and exits 0. Logs are one JSON object per line on stdout.</p>

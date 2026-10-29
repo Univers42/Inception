@@ -1,0 +1,62 @@
+<p>Nothing needs to exist before the first <code>make</code> — everything below is created automatically, <strong>only if missing</strong> (so re-running <code>make</code> never overwrites your data or passwords).</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>What</th>
+<th>Where</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Site configuration</td>
+<td><code>srcs/.env</code></td>
+<td>Domain name, database name, WordPress usernames/emails — non-secret</td>
+</tr>
+<tr>
+<td>WordPress admin + editor passwords</td>
+<td><code>secrets/credentials.txt</code></td>
+<td>Line 1 = admin password, line 2 = editor password</td>
+</tr>
+<tr>
+<td>Database application-user password</td>
+<td><code>secrets/db_password.txt</code></td>
+<td>Random, used by WordPress to connect to MariaDB</td>
+</tr>
+<tr>
+<td>Database root password</td>
+<td><code>secrets/db_root_password.txt</code></td>
+<td>Random, MariaDB root account</td>
+</tr>
+<tr>
+<td>TLS certificate authority</td>
+<td><code>secrets/ca.key</code>, <code>secrets/ca.crt</code></td>
+<td>A local Certificate Authority created just for this project</td>
+</tr>
+<tr>
+<td>TLS server certificate</td>
+<td><code>secrets/server.key</code>, <code>secrets/server.crt</code></td>
+<td>Certificate for your domain, signed by the local CA above</td>
+</tr>
+<tr>
+<td><code>/etc/hosts</code> entry</td>
+<td>(system file)</td>
+<td><code>127.0.0.1 dlesieur.42.fr</code>, so that domain resolves to this machine</td>
+</tr>
+</tbody></table>
+</div>
+<p>The domain name defaults to <strong><code>dlesieur.42.fr</code></strong> — it comes from the <code>LOGIN</code> variable at the top of the <code>Makefile</code> (<code>LOGIN = dlesieur</code>), not from your actual Linux username. If you&#39;re running this on a machine where you are <em>not</em> <code>dlesieur</code> (e.g. you cloned this repo under your own account), either:</p>
+<ul>
+<li>keep using <code>dlesieur.42.fr</code> as-is (it will still work — it&#39;s just a name, resolved locally via <code>/etc/hosts</code>), or</li>
+<li>edit <code>LOGIN</code> in the <code>Makefile</code> to your own username before the first <code>make</code>, so the domain, <code>/etc/hosts</code> entry and certificate all use it instead.</li>
+</ul>
+<p>If you want a different domain without touching <code>LOGIN</code>, edit <code>DOMAIN_NAME</code> in <code>srcs/.env</code> before running <code>make</code> again — the certificate is automatically re-issued for the new name (but you&#39;ll then need to add <em>that</em> name to <code>/etc/hosts</code> yourself, since the automatic <code>/etc/hosts</code> line is tied to <code>LOGIN</code>, not to <code>DOMAIN_NAME</code>).</p>
+<p>To read a password:</p>
+<pre><code class="language-bash">cat secrets/credentials.txt          # line 1 = WP admin, line 2 = WP editor
+cat secrets/db_password.txt
+cat secrets/db_root_password.txt
+</code></pre>
+<p><strong>To change any password or username:</strong> edit the relevant file in <code>secrets/</code> (or the username/email fields in <code>srcs/.env</code>), then rebuild from scratch so the new values are actually applied to the database and WordPress:</p>
+<pre><code class="language-bash">make clean &amp;&amp; make
+</code></pre>
+<p>(A plain restart is <em>not</em> enough — WordPress and MariaDB only read these values the very first time they initialise their data.)</p>
+<hr>

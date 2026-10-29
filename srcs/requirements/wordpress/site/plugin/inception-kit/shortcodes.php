@@ -10,23 +10,41 @@ function inception_kit_no_texturize( $shortcodes ) {
 add_filter( 'no_texturize_shortcodes', 'inception_kit_no_texturize' );
 
 function inception_kit_clean_body( $content ) {
-	return trim( preg_replace( ' ?>|</?p>#i', '', (string) $content ) );
+	return trim( preg_replace( '#<br\s*/?>|</?p>#i', '', (string) $content ) );
 }
+
+/**
+ * wpautop runs before shortcodes, so it leaves <p> and <br /> around the kit's
+ * blocks: empty bands inside a terminal window and a <div> inside a <p>. A
+ * window holds only [cmd] and [out], so its body loses them before rendering,
+ * and the blocks lose the paragraph wrapped around them afterwards.
+ */
+function inception_kit_unwrap_blocks( $content ) {
+	return preg_replace(
+		array( '#<p>\s*(<(?:div|aside|pre|dl)\b[^>]*\bclass="ik-)#', '#(</(?:div|aside|pre|dl)>)\s*</p>#', '#<p>\s*</p>#' ),
+		array( '$1', '$1', '' ),
+		$content
+	);
+}
+add_filter( 'the_content', 'inception_kit_unwrap_blocks', 12 );
 
 /** [term_window title="dlesieur@inception:~"] */
 function inception_kit_sc_term_window( $atts, $content = '' ) {
 	$atts = shortcode_atts( array( 'title' => 'dlesieur@inception:~' ), $atts, 'term_window' );
-	return inception_kit_window( $atts['title'], do_shortcode( $content ) );
+	return inception_kit_window( $atts['title'], do_shortcode( inception_kit_clean_body( $content ) ) );
 }
 add_shortcode( 'term_window', 'inception_kit_sc_term_window' );
 
-/** [cmd path="~"]make up[/cmd] — copyable command line */
+/**
+ * [cmd path="~"]make up[/cmd] — copyable command line. The button sits beside
+ * the scroller, not in it: inside, a long command ran under the button.
+ */
 function inception_kit_sc_cmd( $atts, $content = '' ) {
 	$atts    = shortcode_atts( array( 'path' => '~' ), $atts, 'cmd' );
 	$command = trim( wp_strip_all_tags( inception_kit_clean_body( $content ) ) );
 	$command = str_replace( array( '&#8211;', '&#8212;', '–', '—' ), '--', $command );
 	return sprintf(
-		'<div class="ik-cmd">%1$s<code class="ik-cmd-text">%2$s</code><button type="button" class="ik-copy" data-copy="%3$s" aria-label="Copy command">%4$s%5$s</button></div>',
+		'<div class="ik-cmd"><div class="ik-cmd-scroll">%1$s<code class="ik-cmd-text">%2$s</code></div><button type="button" class="ik-copy" data-copy="%3$s" aria-label="Copy command">%4$s%5$s</button></div>',
 		inception_kit_prompt( $atts['path'] ),
 		esc_html( $command ),
 		esc_attr( $command ),
@@ -70,7 +88,12 @@ function inception_kit_sc_callout( $atts, $content = '' ) {
 }
 add_shortcode( 'callout', 'inception_kit_sc_callout' );
 
-/** [stats]13s|true cold build;7s|fresh boot;40/41|checks green[/stats] */
+/**
+ * [stats]13 s|true cold build;7 s|fresh boot;40/41|checks green[/stats]
+ * A <dl>: each figure is a term and its value (role="list" with no items was
+ * an axe critical). The label comes first in the markup; CSS shows the value
+ * on top.
+ */
 function inception_kit_sc_stats( $atts, $content = '' ) {
 	$items = array_filter( array_map( 'trim', explode( ';', wp_strip_all_tags( $content ) ) ) );
 	$html  = '';
@@ -79,33 +102,28 @@ function inception_kit_sc_stats( $atts, $content = '' ) {
 		$value = isset( $parts[0] ) ? $parts[0] : '';
 		$label = isset( $parts[1] ) ? $parts[1] : '';
 		$html .= sprintf(
-			'<div class="ik-stat"><span class="ik-stat-value">%s</span><span class="ik-stat-label">%s</span></div>',
-			esc_html( $value ),
-			esc_html( $label )
+			'<div class="ik-stat"><dt class="ik-stat-label">%s</dt><dd class="ik-stat-value">%s</dd></div>',
+			esc_html( $label ),
+			esc_html( $value )
 		);
 	}
-	return '<div class="ik-stats" role="list">' . $html . '</div>';
+	return '<dl class="ik-stats">' . $html . '</dl>';
 }
 add_shortcode( 'stats', 'inception_kit_sc_stats' );
 
-/** [arch] — the request-flow diagram, styled */
+/** [arch] — the request-flow diagram, drawn by Mermaid (the theme loads it) */
 function inception_kit_sc_arch( $atts = array() ) {
-	$diagram = <<<'ASCII'
-            ┌─────────────────┐
-   client ──►  nginx  :443    │   TLS 1.2/1.3 · the only door
-            └────────┬────────┘
-                     │ fastcgi :9000
-            ┌────────▼────────┐
-            │ wordpress       │   php-fpm 8.4 · no web server
-            └────────┬────────┘
-                     │ tcp :3306
-            ┌────────▼────────┐
-            │ mariadb  11.4   │   named volume · /home/dlesieur/data
-            └─────────────────┘
-ASCII;
+	$diagram = <<<'MERMAID'
+flowchart TB
+    accTitle: The request path
+    accDescr: A client reaches nginx over TLS 1.2 or 1.3 on port 443, the only door. nginx passes PHP to WordPress, php-fpm 8.4 with no web server, over FastCGI on port 9000. WordPress reaches MariaDB 11.4 over TCP on port 3306, its data on a named volume under /home/login/data.
+    client([Client]) -->|"TLS 1.2 / 1.3 on :443, the only door"| nginx["nginx :443"]
+    nginx -->|"FastCGI :9000"| wordpress["wordpress<br/>php-fpm 8.4, no web server"]
+    wordpress -->|"TCP :3306"| mariadb[("mariadb 11.4<br/>named volume under /home/login/data")]
+MERMAID;
 	return inception_kit_window(
 		'inception — bridge network',
-		'<pre class="ik-arch" aria-label="Architecture diagram: client to nginx on port 443, FastCGI to WordPress on port 9000, TCP to MariaDB on port 3306">' . esc_html( $diagram ) . '</pre>',
+		'<pre class="ik-arch mermaid">' . esc_html( $diagram ) . '</pre>',
 		'ik-window-arch'
 	);
 }

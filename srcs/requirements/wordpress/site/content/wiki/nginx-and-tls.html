@@ -1,0 +1,8 @@
+<p><strong>Why is NGINX the only entrypoint?</strong> Defense in depth: one hardened door. Only nginx publishes a port (443); WordPress and MariaDB have no published ports and are only reachable over the internal bridge network.</p>
+<p><strong>Where is TLS configured, and how do you prove only 1.2/1.3 work?</strong> <code>ssl_protocols TLSv1.2 TLSv1.3;</code> in the nginx vhost. Live proof:</p>
+<pre><code class="language-bash">openssl s_client -connect dlesieur.42.fr:443 -tls1_2   # succeeds
+openssl s_client -connect dlesieur.42.fr:443 -tls1_3   # succeeds
+openssl s_client -connect dlesieur.42.fr:443 -tls1_1   # fails
+curl http://dlesieur.42.fr/                            # connection refused (no port 80)
+</code></pre>
+<p><strong>How does the certificate chain work?</strong> <code>make setup</code> creates a local Root CA on the host and signs a server certificate for the domain (SANs: domain, localhost, 127.0.0.1). Only the server cert/key are mounted into nginx as Docker secrets — the CA key stays on the host, because <code>make trust</code> makes browsers trust that CA, so it must never be exposed to a container.</p>

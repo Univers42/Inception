@@ -2,8 +2,6 @@
 
 $src = '/usr/src/inception-site';
 
-require_once ABSPATH . 'wp-admin/includes/plugin.php';
-activate_plugin( 'inception-kit/inception-kit.php' );
 if ( wp_get_theme()->get_stylesheet() !== 'inception-terminal' ) {
 	switch_theme( 'inception-terminal' );
 }
@@ -60,9 +58,9 @@ $term_id = is_wp_error( $term )
 	: (int) $term['term_id'];
 
 $journal_posts = array(
-	array( 'the-blank-page-bug', 'the blank page bug', "$posts/the-blank-page-bug.html", '2026-07-24 10:00:00' ),
+	array( 'the-blank-page-bug', 'The blank page bug', "$posts/the-blank-page-bug.html", '2026-07-24 10:00:00' ),
 	array( '2x-faster-cold-builds', '2× faster cold builds', "$posts/two-x-faster-cold-builds.html", '2026-07-25 11:00:00' ),
-	array( 'seven-second-boots', 'seven-second boots', "$posts/seven-second-boots.html", '2026-07-26 12:00:00' ),
+	array( 'seven-second-boots', 'Seven-second boots', "$posts/seven-second-boots.html", '2026-07-26 12:00:00' ),
 	array( 'tls-with-a-local-ca', 'TLS with a local CA', "$posts/tls-local-ca.html", '2026-07-27 09:00:00' ),
 );
 foreach ( $journal_posts as $jp ) {

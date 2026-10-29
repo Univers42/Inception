@@ -1,0 +1,143 @@
+<p>Inception deploys a complete WordPress website served over HTTPS, entirely inside Docker containers, built from scratch by this project (no ready-made images).</p>
+<p><strong>Ten containers run</strong>, not three: the three the subject makes mandatory, plus seven bonus ones. Each is one container running exactly one long-lived program as PID 1 — that is what makes it a <em>service</em> here, and the distinction matters, because two things in this project look like services and are not (see &quot;What is <strong>not</strong> a service&quot; below).</p>
+<h2>The ten services</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Daemon running as PID 1</th>
+<th>Published to the host</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>nginx</strong></td>
+<td><code>nginx -g &quot;daemon off;&quot;</code></td>
+<td><strong>443</strong> (TLS)</td>
+<td>The web server, and the only door into the WordPress stack</td>
+</tr>
+<tr>
+<td><strong>wordpress</strong></td>
+<td><code>php-fpm84 -F</code></td>
+<td>— (9000, network-internal)</td>
+<td>The PHP processor running the CMS. Never talks to the host directly — nginx forwards to it</td>
+</tr>
+<tr>
+<td><strong>mariadb</strong></td>
+<td><code>mariadbd --user=mysql</code></td>
+<td>— (3306, network-internal)</td>
+<td>The database holding all site content (posts, users, settings)</td>
+</tr>
+<tr>
+<td><strong>staticsite</strong> <em>(bonus)</em></td>
+<td><code>nginx -g &quot;daemon off;&quot;</code></td>
+<td><strong>8090</strong> (plain HTTP), and <code>/dream/</code> on 443 through nginx</td>
+<td>The landing: a static React site built inside the image — no PHP, no CMS</td>
+</tr>
+<tr>
+<td><strong>redis</strong> <em>(bonus)</em></td>
+<td><code>redis-server /etc/redis.conf</code></td>
+<td>— (6379, network-internal)</td>
+<td>Object cache for WordPress, so repeated page loads skip database queries</td>
+</tr>
+<tr>
+<td><strong>ftp</strong> <em>(bonus)</em></td>
+<td><code>pure-ftpd</code></td>
+<td><strong>21</strong>, plus <strong>21000–21010</strong> for passive data</td>
+<td>File access into the WordPress site files</td>
+</tr>
+<tr>
+<td><strong>adminer</strong> <em>(bonus)</em></td>
+<td><code>php -S 0.0.0.0:8080</code></td>
+<td><strong>8080</strong> (plain HTTP)</td>
+<td>A web UI for browsing and editing the database</td>
+</tr>
+<tr>
+<td><strong>dbbackup</strong> <em>(bonus)</em></td>
+<td><code>crond -f -l 8 -L /dev/stdout</code></td>
+<td>— (no port at all)</td>
+<td>Scheduled database dumps; the daemon is cron itself</td>
+</tr>
+<tr>
+<td><strong>web</strong> <em>(bonus)</em></td>
+<td><code>nginx -g &quot;daemon off;&quot;</code> (as user <code>nginx</code>)</td>
+<td>— (8080, network-internal)</td>
+<td>The lab site: static pages served at <code>https://dlesieur.42.fr/lab/</code> through nginx</td>
+</tr>
+<tr>
+<td><strong>api</strong> <em>(bonus)</em></td>
+<td><code>node /app/server.js</code> (as user <code>api</code>)</td>
+<td>— (3000, network-internal)</td>
+<td>The lab API: JSON at <code>https://dlesieur.42.fr/api/v1/</code>, backed by MariaDB and Redis</td>
+</tr>
+</tbody></table>
+</div>
+<p>Only the four ports in bold are reachable from outside. Everything else talks over a private Docker bridge network named <code>inception</code>, where containers find each other by service name (<code>mariadb</code>, <code>redis</code>, …) — never by IP address.</p>
+<h2>What is <strong>not</strong> a service</h2>
+<p>Two things in this repository are easy to mistake for services, and neither is a container in the running stack:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Thing</th>
+<th>What it actually is</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>The documentation website</strong></td>
+<td>Web pages, not a daemon. A custom theme, plugin and seed content living at <code>srcs/requirements/wordpress/site/</code>, baked into the WordPress image and installed into the CMS on boot. You reach it through the <strong>nginx + wordpress</strong> pair on port 443 like any other page of the site — it has no container, no port and no process of its own</td>
+</tr>
+<tr>
+<td><strong>42ctl</strong></td>
+<td>A command-line tool, not a daemon. It has a Dockerfile (<code>srcs/requirements/bonus/42ctl/</code>) but is deliberately absent from <code>docker-compose.yml</code>, because a CLI exits as soon as its command finishes, and a service here must run a real daemon as PID 1. It is built by <code>make 42ctl</code> and invoked one shot at a time by the <code>make vault-*</code> targets</td>
+</tr>
+</tbody></table>
+</div>
+<p>The general rule: <strong>a port you browse to is not the same thing as a service.</strong> A service is a container with a daemon in it; a website is content that some service serves for you.</p>
+<h2>Policies applied to every service</h2>
+<p>These are set identically across all ten, so there is one behaviour to remember rather than ten:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>Value</th>
+<th>What it means for you</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Restart</td>
+<td><code>restart: unless-stopped</code></td>
+<td>A crashed container comes back by itself, and stays down after <code>make stop</code> until you ask for it</td>
+</tr>
+<tr>
+<td>Health</td>
+<td>a <code>HEALTHCHECK</code> in every one of the ten Dockerfiles</td>
+<td><code>make status</code> reports real health, not just &quot;the process exists&quot;</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>one bridge network, <code>inception</code></td>
+<td>No container is on the host&#39;s network</td>
+</tr>
+<tr>
+<td>PID 1</td>
+<td>the daemon itself, via <code>exec</code></td>
+<td>No <code>tail -f</code>, no <code>sleep infinity</code>, no supervisor — stopping the container signals the real program</td>
+</tr>
+<tr>
+<td>Secrets</td>
+<td>Docker secrets at <code>/run/secrets/*</code>, mode <code>0400</code></td>
+<td>No password is ever passed as an environment variable</td>
+</tr>
+</tbody></table>
+</div>
+<p>Startup order is enforced by health, not by guesswork — Compose waits for the dependency to report <em>healthy</em> before starting the dependent:</p>
+<ul>
+<li><strong>nginx</strong> waits for wordpress</li>
+<li><strong>wordpress</strong> waits for mariadb and redis</li>
+<li><strong>adminer</strong> waits for mariadb</li>
+<li><strong>dbbackup</strong> waits for mariadb and wordpress</li>
+<li><strong>api</strong> waits for mariadb and redis (and its entrypoint waits again, with a time limit)</li>
+<li><strong>mariadb</strong>, <strong>redis</strong>, <strong>staticsite</strong>, <strong>ftp</strong> and <strong>web</strong> wait for nothing — they have no dependencies</li>
+</ul>
+<p>See §5c for the landing, the blog and the wiki, and §10 for the other bonus services.</p>
+<hr>

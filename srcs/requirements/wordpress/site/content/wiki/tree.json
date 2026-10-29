@@ -1,0 +1,366 @@
+[
+  {
+    "slug": "start-here",
+    "title": "Start here",
+    "parent": null,
+    "order": 0,
+    "summary": "What Inception is, how to run it, and where everything lands."
+  },
+  {
+    "slug": "the-ten-services",
+    "title": "The ten services",
+    "parent": "start-here",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "quick-start",
+    "title": "Quick start",
+    "parent": "start-here",
+    "order": 1,
+    "summary": ""
+  },
+  {
+    "slug": "what-make-sets-up",
+    "title": "What make sets up",
+    "parent": "quick-start",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "in-the-browser",
+    "title": "In the browser",
+    "parent": "start-here",
+    "order": 2,
+    "summary": ""
+  },
+  {
+    "slug": "daily-operations",
+    "title": "Daily operations",
+    "parent": "start-here",
+    "order": 3,
+    "summary": ""
+  },
+  {
+    "slug": "health-checks",
+    "title": "Is everything running?",
+    "parent": "daily-operations",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "your-data",
+    "title": "Where your data lives",
+    "parent": "daily-operations",
+    "order": 1,
+    "summary": ""
+  },
+  {
+    "slug": "user-guide",
+    "title": "User guide, condensed",
+    "parent": "start-here",
+    "order": 4,
+    "summary": ""
+  },
+  {
+    "slug": "architecture",
+    "title": "Architecture",
+    "parent": null,
+    "order": 1,
+    "summary": "One door, three levels, and the rules every container follows."
+  },
+  {
+    "slug": "architecture-overview",
+    "title": "The stack at a glance",
+    "parent": "architecture",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "persistence",
+    "title": "Data and persistence",
+    "parent": "architecture",
+    "order": 1,
+    "summary": ""
+  },
+  {
+    "slug": "entrypoints",
+    "title": "Entrypoint design",
+    "parent": "architecture",
+    "order": 2,
+    "summary": ""
+  },
+  {
+    "slug": "security",
+    "title": "Security practices",
+    "parent": "architecture",
+    "order": 3,
+    "summary": ""
+  },
+  {
+    "slug": "edge-routing",
+    "title": "Edge routing",
+    "parent": "architecture",
+    "order": 4,
+    "summary": ""
+  },
+  {
+    "slug": "container-ips",
+    "title": "nginx and container IPs",
+    "parent": "architecture",
+    "order": 5,
+    "summary": ""
+  },
+  {
+    "slug": "services",
+    "title": "Services",
+    "parent": null,
+    "order": 2,
+    "summary": "Every bonus container: what it does, why it exists, how it is proven."
+  },
+  {
+    "slug": "the-landing",
+    "title": "The landing (static site)",
+    "parent": "services",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "the-website",
+    "title": "The blog and the wiki",
+    "parent": "services",
+    "order": 1,
+    "summary": ""
+  },
+  {
+    "slug": "redis",
+    "title": "Redis object cache",
+    "parent": "services",
+    "order": 2,
+    "summary": ""
+  },
+  {
+    "slug": "ftp",
+    "title": "FTP",
+    "parent": "services",
+    "order": 3,
+    "summary": ""
+  },
+  {
+    "slug": "adminer",
+    "title": "Adminer",
+    "parent": "services",
+    "order": 4,
+    "summary": ""
+  },
+  {
+    "slug": "backups",
+    "title": "Scheduled backups",
+    "parent": "services",
+    "order": 5,
+    "summary": ""
+  },
+  {
+    "slug": "the-lab",
+    "title": "The lab: web + api",
+    "parent": "services",
+    "order": 6,
+    "summary": ""
+  },
+  {
+    "slug": "lab-configuration",
+    "title": "Configuration",
+    "parent": "the-lab",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "lab-api",
+    "title": "The API",
+    "parent": "the-lab",
+    "order": 1,
+    "summary": ""
+  },
+  {
+    "slug": "lab-web",
+    "title": "The machine room",
+    "parent": "the-lab",
+    "order": 2,
+    "summary": ""
+  },
+  {
+    "slug": "lab-wires",
+    "title": "The wires",
+    "parent": "the-lab",
+    "order": 3,
+    "summary": ""
+  },
+  {
+    "slug": "lab-node",
+    "title": "Node without Node on the host",
+    "parent": "the-lab",
+    "order": 4,
+    "summary": ""
+  },
+  {
+    "slug": "lab-rootless",
+    "title": "Rootless Docker, small home",
+    "parent": "the-lab",
+    "order": 5,
+    "summary": ""
+  },
+  {
+    "slug": "lab-tests",
+    "title": "Lab tests",
+    "parent": "the-lab",
+    "order": 6,
+    "summary": ""
+  },
+  {
+    "slug": "engineering",
+    "title": "Engineering",
+    "parent": null,
+    "order": 3,
+    "summary": "Building, measuring and testing the stack."
+  },
+  {
+    "slug": "environment",
+    "title": "Environment from scratch",
+    "parent": "engineering",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "build-and-launch",
+    "title": "Build and launch",
+    "parent": "engineering",
+    "order": 1,
+    "summary": ""
+  },
+  {
+    "slug": "containers-and-volumes",
+    "title": "Containers and volumes",
+    "parent": "engineering",
+    "order": 2,
+    "summary": ""
+  },
+  {
+    "slug": "build-time",
+    "title": "Build time",
+    "parent": "engineering",
+    "order": 3,
+    "summary": ""
+  },
+  {
+    "slug": "boot-time",
+    "title": "Boot time",
+    "parent": "engineering",
+    "order": 4,
+    "summary": ""
+  },
+  {
+    "slug": "measured-results",
+    "title": "Measured results",
+    "parent": "engineering",
+    "order": 5,
+    "summary": ""
+  },
+  {
+    "slug": "benchmarks",
+    "title": "Benchmarks, condensed",
+    "parent": "measured-results",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "testing",
+    "title": "Testing and compliance",
+    "parent": "engineering",
+    "order": 6,
+    "summary": ""
+  },
+  {
+    "slug": "troubleshooting",
+    "title": "Troubleshooting",
+    "parent": "engineering",
+    "order": 7,
+    "summary": ""
+  },
+  {
+    "slug": "developer-guide",
+    "title": "Developer guide, condensed",
+    "parent": "engineering",
+    "order": 8,
+    "summary": ""
+  },
+  {
+    "slug": "defense",
+    "title": "Defense",
+    "parent": null,
+    "order": 4,
+    "summary": "The questions an evaluator asks, and the commands that answer them live."
+  },
+  {
+    "slug": "docker-fundamentals",
+    "title": "Docker fundamentals",
+    "parent": "defense",
+    "order": 0,
+    "summary": ""
+  },
+  {
+    "slug": "nginx-and-tls",
+    "title": "NGINX and TLS",
+    "parent": "defense",
+    "order": 1,
+    "summary": ""
+  },
+  {
+    "slug": "wordpress-and-php-fpm",
+    "title": "WordPress and php-fpm",
+    "parent": "defense",
+    "order": 2,
+    "summary": ""
+  },
+  {
+    "slug": "mariadb",
+    "title": "MariaDB",
+    "parent": "defense",
+    "order": 3,
+    "summary": ""
+  },
+  {
+    "slug": "docker-mechanics",
+    "title": "Docker mechanics",
+    "parent": "defense",
+    "order": 4,
+    "summary": ""
+  },
+  {
+    "slug": "live-proof",
+    "title": "Live-proof cheat sheet",
+    "parent": "defense",
+    "order": 5,
+    "summary": ""
+  },
+  {
+    "slug": "small-modifications",
+    "title": "Small modifications",
+    "parent": "defense",
+    "order": 6,
+    "summary": ""
+  },
+  {
+    "slug": "comparisons",
+    "title": "The four comparisons",
+    "parent": "defense",
+    "order": 7,
+    "summary": ""
+  },
+  {
+    "slug": "defense-qa",
+    "title": "Defense Q&A, condensed",
+    "parent": "defense",
+    "order": 8,
+    "summary": ""
+  }
+]

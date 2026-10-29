@@ -1,0 +1,23 @@
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Docker volume</th>
+<th>Host path</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>inception_db_data</code></td>
+<td><code>/home/dlesieur/data/mariadb</code></td>
+<td>MariaDB data directory</td>
+</tr>
+<tr>
+<td><code>inception_wp_data</code></td>
+<td><code>/home/dlesieur/data/wordpress</code></td>
+<td>WordPress core, themes, plugins, uploads</td>
+</tr>
+</tbody></table>
+</div>
+<p>Both are <strong>named volumes</strong> declared at the top level of <code>docker-compose.yml</code> with <code>driver: local</code> and a <code>device</code> option pointing at the host directory. This satisfies both subject rules at once: they are real named volumes (services never bind-mount a host path), <em>and</em> their data lives inside <code>/home/login/data</code>. They survive <code>make down</code> / <code>make up</code> cycles and reboots — <code>make test-deep</code> proves it by writing a DB row and a file, cycling the stack, and reading them back.</p>
+<p>Note: the MariaDB host directory ends up mode 750 owned by the container&#39;s <code>mysql</code> uid — inspect its content via <code>docker exec mariadb ls /var/lib/mysql</code>, not the host path.</p>
+<hr>

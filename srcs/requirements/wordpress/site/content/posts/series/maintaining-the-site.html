@@ -1,0 +1,23 @@
+<p>The site is meant to grow. The repository seeds its foundations, and a maintainer adds to it from the browser. This is the whole routine.</p>
+
+<h2>Sign in</h2>
+<p>Open <code>/wp-admin/</code>, or <em>Sign in</em> on the landing page, and use the administrator's email (or username) and password. There is no public sign-up: every account is created by a maintainer. The dashboard opens on two panels. <em>Write for Inception</em> is one click to a new post or a new wiki page. <em>The network</em> asks every service of the stack, from inside the WordPress container, whether it answers.</p>
+
+<h2>Write a post</h2>
+<p><em>Posts → Add New</em>. Give it a category, write, publish. Three headings or more and Easy Table of Contents adds an "On this page" box. Code Block Pro's block highlights code, titles and descriptions for search engines come from The SEO Framework, and Relevanssi indexes the post the moment it is saved, so the site search finds it next to the wiki.</p>
+
+<h2>Add a wiki page</h2>
+<p><em>New wiki page</em> (or <em>Docs → Add New</em>). In <em>Page Attributes</em>, pick its <strong>Parent</strong>, the area it belongs to, and its <strong>Order</strong> in that area. It appears at <code>/wiki/&lt;area&gt;/&lt;page&gt;/</code>, in the area's sidebar tree, between its neighbours' "previous" and "next" links, and in search. <em>Arrange the wiki</em> opens weDocs' own view of the whole tree.</p>
+
+<h2>Draw a diagram</h2>
+<p>Insert the <em>Diagram (Mermaid)</em> pattern from the Inception Kit patterns. It is a code block with the class <code>mermaid</code>: write a diagram as text, and the page draws it, in the site's colours, light or dark. The same syntax works in the repository's Markdown, where GitHub draws it too.</p>
+<pre class="mermaid">flowchart LR
+    accTitle: How content reaches the site
+    accDescr: make wiki cuts DEV_DOC.md and USER_DOC.md into one HTML file per wiki page. Every boot syncs those pages into WordPress, where maintainers also add pages and edits from wp-admin. Readers get the result at /blog/, /wiki/ and in search.
+    docs["DEV_DOC.md and USER_DOC.md"] --&gt;|"make wiki"| pages["content/wiki&lt;br/&gt;one HTML file per page"]
+    pages --&gt;|"every boot: sync"| wp[("WordPress")]
+    maintainer(["Maintainer in wp-admin"]) --&gt;|"new pages, edits"| wp
+    wp --&gt;|"/blog/, /wiki/, search"| readers(["Readers"])</pre>
+
+<h2>What the repository keeps</h2>
+<p>Most of the wiki is cut from the project's own documentation by <code>make wiki</code>, and this guide series lives in the repository too. Both are synced on every boot: a page is created when it is missing and refreshed when the repository changed it, until someone edits it in wp-admin. From then on, the edit wins and the next deploy leaves it alone. Plugins are pinned in <code>site/plugins.txt</code> and built into the image, and wp-admin has no code editor, so a change to code always goes through the repository and its tests.</p>

@@ -1,0 +1,37 @@
+<p>There are three volumes, each a named Docker volume bound to a directory under <code>/home/dlesieur/data</code>:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Data</th>
+<th>Host path</th>
+<th>Docker volume</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Database</td>
+<td><code>/home/dlesieur/data/mariadb</code></td>
+<td><code>inception_db_data</code></td>
+<td>mariadb</td>
+</tr>
+<tr>
+<td>Website files</td>
+<td><code>/home/dlesieur/data/wordpress</code></td>
+<td><code>inception_wp_data</code></td>
+<td>wordpress (read-write), nginx (<strong>read-only</strong>), ftp (read-write)</td>
+</tr>
+<tr>
+<td>Database backups</td>
+<td><code>/home/dlesieur/data/backups</code></td>
+<td><code>inception_backup_data</code></td>
+<td>dbbackup</td>
+</tr>
+</tbody></table>
+</div>
+<p>Three services share the WordPress volume, which is why a file uploaded over FTP shows up on the website immediately — it is the same directory. nginx mounts it read-only: it serves those files but can never modify them.</p>
+<p>Data survives <code>make down</code> / <code>make up</code> cycles and reboots.</p>
+<p>To <strong>erase everything</strong> (containers, images, volumes, and this host data) and start completely fresh:</p>
+<pre><code class="language-bash">make clean &amp;&amp; make
+</code></pre>
+<p>(or <code>make re</code>, which does the same thing). This does <strong>not</strong> touch <code>secrets/</code> or <code>srcs/.env</code> — delete those yourself first if you also want brand-new random passwords and a freshly issued certificate.</p>
+<hr>

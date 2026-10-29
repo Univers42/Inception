@@ -1,0 +1,8 @@
+<p><code>fastcgi_pass</code> uses a variable plus an explicit <code>resolver 127.0.0.11</code>:</p>
+<pre><code class="language-nginx">resolver               127.0.0.11 valid=10s ipv6=off;
+set $upstream_wordpress wordpress:9000;
+fastcgi_pass            $upstream_wordpress;
+</code></pre>
+<p>With a literal <code>fastcgi_pass wordpress:9000;</code> nginx resolves the name once when it loads its config and caches that address for the life of the process. Recreate the wordpress container — a rebuild, a crash, any <code>docker compose up -d wordpress</code> — and it returns on a new IP while nginx keeps dialling the old one, answering <strong>502 on every request</strong> until nginx itself is restarted. Putting the upstream in a variable forces re-resolution per request. Verified by moving wordpress from <code>172.18.0.9</code> to <code>172.18.0.10</code> without touching nginx: the site stayed at 200.</p>
+<p>The lab&#39;s <code>/lab/</code> and <code>/api/v1/</code> locations get the same re-resolution from an <code>upstream</code> block with <code>server … resolve</code>, which also keeps connections alive; a variable cannot (§13.1).</p>
+<hr>

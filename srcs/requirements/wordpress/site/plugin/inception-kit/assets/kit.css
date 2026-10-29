@@ -1,243 +1,214 @@
+/*
+ * inception-kit components ([term_window], [cmd], [out], [callout], [stats],
+ * [arch], [kbd], [badge]) drawn with the shared tokens (srcs/design, loaded
+ * by the theme). Terminal pieces stay terminal-dark in both schemes: they
+ * show what a shell prints.
+ */
 .ik-window {
-	background: var(--ink-panel, #10151e);
-	border: 1px solid var(--ink-border, #1e2836);
-	border-radius: var(--ink-radius, 8px);
-	overflow: hidden;
-	margin: 1.75rem 0;
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 32px rgba(0, 0, 0, 0.35);
+    margin: var(--space-5) 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+    background: var(--code-bg);
+    overflow: hidden;
+    color: #d6deea;
 }
+
 .ik-window-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
-	padding: 0.55rem 0.9rem;
-	background: var(--ink-panel-2, #141a25);
-	border-bottom: 1px solid var(--ink-border, #1e2836);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0.55rem 0.9rem;
+    border-bottom: 1px solid rgb(168 190 220 / 0.12);
+    background: rgb(255 255 255 / 0.02);
 }
+
 .ik-dots { display: inline-flex; gap: 6px; }
+
 .ik-dot {
-	width: 11px;
-	height: 11px;
-	border-radius: 50%;
-	display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgb(168 190 220 / 0.25);
 }
-.ik-dot-r { background: #ff5f56; }
-.ik-dot-y { background: #ffbd2e; }
-.ik-dot-g { background: #27c93f; }
+
+.ik-dot-r { background: #f07a6a; }
+.ik-dot-y { background: #f0b45a; }
+.ik-dot-g { background: #6fd3a0; }
+
 .ik-window-title {
-	font-size: 0.78rem;
-	color: var(--ink-dim, #8395ab);
-	letter-spacing: 0.02em;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: #9eabbd;
+    letter-spacing: 0.04em;
 }
+
 .ik-window-body { padding: 1rem 1.15rem; }
 .ik-window-body > :first-child { margin-top: 0; }
 .ik-window-body > :last-child { margin-bottom: 0; }
 
 .ik-prompt { white-space: nowrap; }
-.ik-prompt-user { color: var(--ink-green, #4ae383); }
+.ik-prompt-user { color: #5cc2b4; }
 .ik-prompt-sep,
-.ik-prompt-sign { color: var(--ink-dim, #8395ab); }
-.ik-prompt-path { color: var(--ink-cyan, #5ccfe6); }
+.ik-prompt-sign { color: #74829a; }
+.ik-prompt-path { color: #8db4d8; }
 .ik-prompt-sign { margin: 0 0.55em 0 0.15em; }
 
+/* Two columns: the command scrolls in the first, the copy button owns the
+   second, so a long command can never run under it. */
 .ik-cmd {
-	display: flex;
-	align-items: center;
-	gap: 0.25rem;
-	background: var(--ink-deep, #080b10);
-	border: 1px solid var(--ink-border, #1e2836);
-	border-radius: var(--ink-radius-sm, 4px);
-	padding: 0.65rem 0.55rem 0.65rem 0.9rem;
-	margin: 1rem 0;
-	overflow-x: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.35rem 0;
+    padding: 0.4rem 0.4rem 0.4rem 0.9rem;
+    border-radius: var(--radius-s);
+    background: var(--code-bg);
+    font-family: var(--font-mono);
+    font-size: 0.86rem;
+    color: #e9eef5;
 }
-.ik-cmd-text {
-	flex: 1;
-	color: var(--ink-fg, #c9d4e3);
-	background: none;
-	padding: 0;
-	border: 0;
-	font-size: 0.92em;
-	white-space: pre;
-}
+
+.ik-cmd-scroll { display: flex; align-items: baseline; gap: 0.2em; overflow-x: auto; padding-block: 0.15rem; scrollbar-width: thin; }
+
+.ik-window .ik-cmd { padding-left: 0; background: transparent; }
+
+.ik-cmd-text { white-space: pre; background: none; padding: 0; color: inherit; }
+
 .ik-copy {
-	position: relative;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 30px;
-	min-height: 30px;
-	padding: 0;
-	background: transparent;
-	border: 1px solid transparent;
-	border-radius: var(--ink-radius-sm, 4px);
-	color: var(--ink-dim, #8395ab);
-	cursor: pointer;
-	transition: color 160ms ease-out, border-color 160ms ease-out;
+    display: inline-grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid rgb(168 190 220 / 0.18);
+    border-radius: var(--radius-s);
+    background: transparent;
+    color: #9eabbd;
+    cursor: pointer;
+    transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
 }
-.ik-copy:hover { color: var(--ink-green, #4ae383); border-color: var(--ink-border-hi, #2a3648); }
+
+.ik-copy:hover { color: #f0b45a; border-color: rgb(240 180 90 / 0.5); }
 .ik-copy:active { transform: scale(0.92); }
-.ik-copy:focus-visible { outline: 2px solid var(--ink-amber, #ffb454); outline-offset: 2px; }
+.ik-copy:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .ik-copy .ik-icon-check { display: none; }
 .ik-copy.is-copied .ik-icon-copy { display: none; }
-.ik-copy.is-copied .ik-icon-check { display: inline; color: var(--ink-green, #4ae383); }
+.ik-copy.is-copied .ik-icon-check { display: inline; color: #6fd3a0; }
 
 .ik-out {
-	margin: -0.35rem 0 1rem;
-	padding: 0.35rem 0.9rem 0.1rem 2.1rem;
-	background: none;
-	border: 0;
-	color: var(--ink-dim, #8395ab);
-	font-size: 0.88em;
-	line-height: 1.7;
-	white-space: pre-wrap;
+    margin: 0.1rem 0 0.6rem;
+    padding: 0 0.9rem;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: #9eabbd;
+    white-space: pre-wrap;
 }
+
+/* The theme's .prose pre would give the output a second frame inside the window. */
+.ik-window .ik-out,
+.prose .ik-window .ik-out { padding: 0; border: 0; border-radius: 0; background: none; overflow: visible; }
 
 .ik-callout {
-	border: 1px solid var(--ink-border, #1e2836);
-	border-left-width: 3px;
-	border-radius: var(--ink-radius-sm, 4px);
-	background: var(--ink-panel, #10151e);
-	margin: 1.5rem 0;
-	overflow: hidden;
+    margin: var(--space-5) 0;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--link);
+    border-radius: var(--radius-s);
+    background: var(--surface);
 }
+
 .ik-callout-head {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	padding: 0.5rem 0.9rem;
-	font-size: 0.75rem;
-	font-weight: 600;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1rem 0;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--link);
 }
-.ik-callout-body { padding: 0.15rem 0.95rem 0.75rem; color: var(--ink-fg, #c9d4e3); }
+
+.ik-callout-body { padding: 0.25rem 1rem 0.85rem; color: var(--text); }
 .ik-callout-body p { margin: 0.5rem 0; }
-.ik-callout-info { border-left-color: var(--ink-cyan, #5ccfe6); }
-.ik-callout-info .ik-callout-head { color: var(--ink-cyan, #5ccfe6); }
-.ik-callout-ok { border-left-color: var(--ink-green, #4ae383); }
-.ik-callout-ok .ik-callout-head { color: var(--ink-green, #4ae383); }
-.ik-callout-warn { border-left-color: var(--ink-amber, #ffb454); }
-.ik-callout-warn .ik-callout-head { color: var(--ink-amber, #ffb454); }
-.ik-callout-err { border-left-color: var(--ink-red, #ff6b6b); }
-.ik-callout-err .ik-callout-head { color: var(--ink-red, #ff6b6b); }
+.ik-callout-info { border-left-color: var(--level-1); }
+.ik-callout-info .ik-callout-head { color: var(--level-1); }
+.ik-callout-ok { border-left-color: var(--success); }
+.ik-callout-ok .ik-callout-head { color: var(--success); }
+.ik-callout-warn { border-left-color: var(--accent); }
+.ik-callout-warn .ik-callout-head { color: var(--focus); }
+.ik-callout-err { border-left-color: var(--danger); }
+.ik-callout-err .ik-callout-head { color: var(--danger); }
 
+/* Rules are drawn by each cell (right and bottom) and clipped at the frame:
+   a 1px gap over a grey background left an empty cell as a grey block. */
 .ik-stats {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-	gap: 0.75rem;
-	margin: 1.75rem 0;
-}
-.ik-stat {
-	position: relative;
-	background: var(--ink-panel, #10151e);
-	border: 1px solid var(--ink-border, #1e2836);
-	border-radius: var(--ink-radius, 8px);
-	padding: 1rem 1.1rem 0.9rem;
-	display: flex;
-	flex-direction: column;
-	gap: 0.3rem;
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-	transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 260ms ease-out;
-}
-.ik-stat::before {
-	content: "";
-	position: absolute;
-	inset: -1px;
-	border-radius: inherit;
-	padding: 1px;
-	background: linear-gradient(135deg, rgba(74, 227, 131, 0.6), rgba(92, 207, 230, 0.3) 60%, transparent 95%);
-	-webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-	-webkit-mask-composite: xor;
-	mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-	mask-composite: exclude;
-	opacity: 0;
-	transition: opacity 260ms ease-out;
-	pointer-events: none;
-}
-.ik-stat:hover { transform: translateY(-2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 32px rgba(0, 0, 0, 0.4); }
-.ik-stat:hover::before { opacity: 1; }
-.ik-stat-value {
-	font-size: 1.6rem;
-	font-weight: 700;
-	color: var(--ink-green, #4ae383);
-	font-variant-numeric: tabular-nums;
-	text-shadow: 0 0 14px var(--ink-green-glow, rgba(74, 227, 131, 0.28));
-}
-.ik-stat-label {
-	font-size: 0.78rem;
-	color: var(--ink-dim, #8395ab);
-	letter-spacing: 0.04em;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    margin: var(--space-6) 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+    overflow: hidden;
 }
 
-.ik-arch {
-	background: none;
-	border: 0;
-	margin: 0;
-	padding: 0.25rem 0;
-	color: var(--ink-fg, #c9d4e3);
-	font-size: 0.82rem;
-	line-height: 1.55;
-	overflow-x: auto;
+.ik-stats:has(> :nth-child(6):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 40rem) { .ik-stats:has(> :nth-child(6):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.ik-stat {
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    padding: 1.1rem 1.2rem;
+    box-shadow: 1px 0 0 var(--line), 0 1px 0 var(--line);
 }
-.ik-window-arch .ik-window-body { background: var(--ink-deep, #080b10); }
+
+.ik-stat-value {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--step-3);
+    line-height: 1;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.ik-stat-label { font-size: 0.85rem; color: var(--text-muted); }
+
+.ik-window-arch .ik-window-body {
+    margin: 0;
+    padding: 0;
+    overflow-x: auto;
+}
+/* The diagram fills the window: the frame is the window's, not a second box. */
+.ik-window-arch pre.ik-arch { margin: 0; border: 0; border-radius: 0; }
 
 .ik-kbd {
-	display: inline-block;
-	padding: 0.1em 0.5em 0.15em;
-	font-size: 0.82em;
-	color: var(--ink-fg, #c9d4e3);
-	background: var(--ink-panel-2, #141a25);
-	border: 1px solid var(--ink-border-hi, #2a3648);
-	border-bottom-width: 2px;
-	border-radius: var(--ink-radius-sm, 4px);
+    display: inline-block;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.8em;
+    color: var(--text);
+    background: var(--surface-raised);
 }
+
 .ik-badge {
-	display: inline-block;
-	padding: 0.05em 0.55em 0.1em;
-	font-size: 0.74em;
-	font-weight: 600;
-	letter-spacing: 0.06em;
-	border-radius: 999px;
-	border: 1px solid currentColor;
-	vertical-align: middle;
-}
-.ik-badge-green { color: var(--ink-green, #4ae383); }
-.ik-badge-amber { color: var(--ink-amber, #ffb454); }
-.ik-badge-cyan { color: var(--ink-cyan, #5ccfe6); }
-.ik-badge-red { color: var(--ink-red, #ff6b6b); }
-
-.ik-icon { vertical-align: -0.15em; flex: none; }
-
-.ik-toc-list {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-	font-size: 0.82rem;
-	line-height: 1.5;
-}
-.ik-toc-list li { margin: 0.35rem 0; }
-.ik-toc-h3 { padding-left: 1rem; }
-.ik-toc-list a {
-	color: var(--ink-dim, #8395ab);
-	text-decoration: none;
-	border-left: 2px solid transparent;
-	padding-left: 0.6rem;
-	display: inline-block;
-	transition: color 160ms ease-out, border-color 160ms ease-out;
-}
-.ik-toc-list a:hover { color: var(--ink-fg, #c9d4e3); }
-.ik-toc-list a.is-active {
-	color: var(--ink-green, #4ae383);
-	border-left-color: var(--ink-green, #4ae383);
+    display: inline-block;
+    padding: 0.1rem 0.55rem;
+    border-radius: var(--radius-pill);
+    border: 1px solid currentcolor;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.ik-stat,
-	.ik-copy,
-	.ik-toc-list a { transition: none; }
-	.ik-stat:hover { transform: none; }
-}
+.ik-badge-green { color: var(--success); }
+.ik-badge-amber { color: var(--focus); }
+.ik-badge-cyan { color: var(--link); }
+.ik-badge-red { color: var(--danger); }
+
+.ik-icon { display: inline-block; vertical-align: -0.15em; flex-shrink: 0; }

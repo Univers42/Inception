@@ -1,0 +1,55 @@
+<p>Each is its own container, built from its own Dockerfile on <code>alpine:3.23</code>, with a healthcheck and a real daemon as PID 1 — the same rules the mandatory services follow. Sources in <code>srcs/requirements/bonus/</code>.</p>
+<h2>11.2 Redis object cache</h2>
+<p>Three parts have to line up, and it is the third that is usually missed:</p>
+<ol>
+<li><code>php84-pecl-redis</code> in the WordPress image (the PHP extension).</li>
+<li><code>WP_REDIS_HOST</code>, <code>WP_REDIS_PORT</code>, <code>WP_CACHE_KEY_SALT</code> and <code>WP_CACHE</code> in <code>wp-config.php</code>. The salt is the domain, so two installs sharing a Redis instance cannot read each other&#39;s keys.</li>
+<li><strong>The drop-in.</strong> <code>wp redis enable</code> writes <code>wp-content/object-cache.php</code>. Without it the plugin is installed, active, and caching nothing.</li>
+</ol>
+<p>The entrypoint does all three, <strong>non-fatally</strong> — the site must boot even if Redis is unreachable, because a cache is an optimisation, not a dependency. It also patches an <em>existing</em> <code>wp-config.php</code>: the config heredoc only runs on a first install, and the site volume outlives image rebuilds.</p>
+<p>Redis is configured as a cache, not a database — <code>save &quot;&quot;</code>, <code>appendonly no</code>, <code>maxmemory 256mb</code>, <code>maxmemory-policy allkeys-lru</code>. Without an eviction policy Redis answers writes with an error once full, which WordPress would surface as a broken page rather than a cache miss.</p>
+<h2>11.3 FTP</h2>
+<p><code>pure-ftpd</code>, configured entirely by command-line flags built in the entrypoint from <code>conf/pure-ftpd.conf</code>. No anonymous login (<code>-E</code>), every user chrooted (<code>-A</code>), and explicit TLS offered on port 21 (<code>-Y 1</code>) with the certificate nginx serves: a client that asks for TLS sends the password encrypted, and a plain one still logs in.</p>
+<p>The interesting part is permissions. WordPress files are owned by <code>nobody</code> (uid 65534). Rather than <code>chmod -R g+w</code> across ~2600 files, the image adds a second <code>/etc/passwd</code> entry sharing that uid:</p>
+<pre><code class="language-text">ftpuser:x:65534:65534:FTP:/var/www/html:/sbin/nologin
+</code></pre>
+<p>Two names for one uid is ordinary Unix. The FTP user <em>is</em> the owner, so nothing needs relaxing and permissions cannot drift out of step with php-fpm. The login shell must also appear in <code>/etc/shells</code> or the account is refused, even though it must never get a shell.</p>
+<p><strong>Why not vsftpd.</strong> It was the first implementation and it works for ordinary clients, but on Alpine it dies under rapid connect/disconnect — the pattern a port scan produces. Measured: 3 to 5 crashes per 60 abrupt closes, which the restart policy quietly absorbed as a climbing <code>RestartCount</code> while the service still reported healthy. <code>isolate=NO</code>/<code>isolate_network=NO</code> reduced it but did not remove it, and <code>one_process_model=YES</code> stopped the crashes by breaking FTP entirely (no listings, no uploads). pure-ftpd survived the identical test — 100 abrupt closes, zero restarts — so that is what ships.</p>
+<p>Two vsftpd traps worth recording anyway, since both cost real time: <code>vsftpd_log_file=/dev/stdout</code> makes it refuse every connection with <code>500 OOPS: failed to open vsftpd log file</code>, because it reopens the log after dropping privileges and chrooting when the <code>/proc/self/fd</code> symlink no longer resolves; and <code>syslog_enable=YES</code> silently discards everything, because a single-service container has no syslog daemon and therefore no <code>/dev/log</code>.</p>
+<p><strong>Passive mode only</strong>, ports 21000-21010 published 1:1 — the advertised range and the reachable range must be identical or every directory listing hangs — advertising <code>127.0.0.1</code>, which serves the VM and the physical host alike because both reach the server over loopback.</p>
+<p>The healthcheck reads the listening socket from <code>/proc</code> with <code>netstat</code> rather than opening a connection: under vsftpd the obvious <code>nc -z</code> was itself killing the daemon every ten seconds, and a healthcheck should observe a service, not exercise it.</p>
+<h2>11.4 Adminer</h2>
+<p>Pinned to a release <strong>and its SHA-256</strong>, verified at build time — this container talks to the database, so its integrity is checked rather than assumed. Served by PHP&#39;s built-in server, which keeps it to one process; fronting a php-fpm pool with nginx would put two daemons in a container for a single-file admin page.</p>
+<h2>11.5 Scheduled backups (free choice)</h2>
+<p><code>crond</code> as PID 1 — a real daemon, not a keep-alive loop. An initial backup runs at startup so the service is demonstrably working rather than merely scheduled, and so the healthcheck has something to verify. The healthcheck asserts a <strong>valid</strong> dump exists (<code>gzip -t</code>), not that the process is alive.</p>
+<p>Environment is written into the crontab line itself, because cron jobs do not inherit the container&#39;s environment.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>BACKUP_CRON</code></td>
+<td><code>0 */6 * * *</code></td>
+<td>schedule</td>
+</tr>
+<tr>
+<td><code>BACKUP_KEEP</code></td>
+<td><code>7</code></td>
+<td>how many dumps to retain</td>
+</tr>
+</tbody></table>
+</div>
+<p>Data lives in the <code>backup_data</code> named volume → <code>/home/dlesieur/data/backups</code>, following the same host-path rule as the two mandatory volumes.</p>
+<h2>11.6 A note on nginx and container IPs</h2>
+<p><code>fastcgi_pass</code> uses a variable plus an explicit <code>resolver 127.0.0.11</code>:</p>
+<pre><code class="language-nginx">resolver               127.0.0.11 valid=10s ipv6=off;
+set $upstream_wordpress wordpress:9000;
+fastcgi_pass            $upstream_wordpress;
+</code></pre>
+<p>With a literal <code>fastcgi_pass wordpress:9000;</code> nginx resolves the name once when it loads its config and caches that address for the life of the process. Recreate the wordpress container — a rebuild, a crash, any <code>docker compose up -d wordpress</code> — and it returns on a new IP while nginx keeps dialling the old one, answering <strong>502 on every request</strong> until nginx itself is restarted. Putting the upstream in a variable forces re-resolution per request. Verified by moving wordpress from <code>172.18.0.9</code> to <code>172.18.0.10</code> without touching nginx: the site stayed at 200.</p>
+<p>The lab&#39;s <code>/lab/</code> and <code>/api/v1/</code> locations get the same re-resolution from an <code>upstream</code> block with <code>server … resolve</code>, which also keeps connections alive; a variable cannot (§13.1).</p>
+<hr>

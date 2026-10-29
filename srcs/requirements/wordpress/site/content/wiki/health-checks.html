@@ -1,0 +1,11 @@
+<pre><code class="language-bash">make status     # container status — all ten should show &quot;Up (healthy)&quot;
+make logs       # live logs of all services (Ctrl+C to stop watching)
+make test       # runs the full automated compliance/health check suite
+</code></pre>
+<p>Quick manual checks (run these inside the VM / on the machine running <code>make</code>):</p>
+<pre><code class="language-bash">curl -kI https://dlesieur.42.fr                                  # TLS answers
+docker exec mariadb mariadb-admin ping -h localhost --silent     # database alive
+docker exec wordpress wp --allow-root option get siteurl         # WordPress alive
+</code></pre>
+<p><code>make run_wp</code> prints a full guided health report (WordPress version, users, active theme, PHP/OPcache status, DB connection) and opens the site in your default browser.</p>
+<hr>

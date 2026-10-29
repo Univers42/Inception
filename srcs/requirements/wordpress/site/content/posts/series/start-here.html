@@ -1,0 +1,23 @@
+<p>This site is ten containers serving one domain, inside a virtual machine that another project builds. This post is the map: what you need, what you type, and what you get at the end. The rest of the series takes each step apart.</p>
+
+<h2>The path, end to end</h2>
+<pre class="mermaid">flowchart LR
+    accTitle: From your machine to the site
+    accDescr: On a Linux machine with QEMU or VirtualBox, make all builds a Debian virtual machine on LUKS and LVM in about 20 minutes. make inception then starts the 10 containers inside it, and your browser reaches dlesieur.42.fr over HTTPS on port 443.
+    host["Your machine&lt;br/&gt;Linux with QEMU or VirtualBox"] --&gt;|"make all, about 20 min"| vm["The virtual machine&lt;br/&gt;Debian on LUKS + LVM"]
+    vm --&gt;|"make inception"| stack["Inception&lt;br/&gt;10 containers"]
+    stack --&gt;|"HTTPS :443"| browser(["Your browser&lt;br/&gt;dlesieur.42.fr"])</pre>
+<p>Two repositories, three commands. <strong>born2root</strong> builds and runs the machine; <strong>Inception</strong> is the stack that runs on it. Both are driven by <code>make</code>, and both refuse early, with the fix in the message, rather than failing twenty minutes in.</p>
+
+<h2>1. Build the machine</h2>
+[cmd]make all[/cmd]
+<p>born2root downloads a Debian netinst image, injects a preseed and its setup scripts, and installs the system unattended onto an encrypted LVM disk. It then boots the guest headless, types the disk passphrase in from the host and writes your <code>~/.ssh/config</code>, so that <code>ssh b2b</code> just works. Count about twenty minutes and 18 GB of free disk for a build from nothing.</p>
+<p>The disk is one number, <code>SIZE_B2B</code> (15 GB by default, the school quota). The partition layout and the set of tools installed are both derived from it. <code>make backend</code> tells you whether QEMU or VirtualBox will run the machine, and why.</p>
+
+<h2>2. Deploy the stack</h2>
+[cmd]make inception[/cmd]
+<p>This copies Inception into the guest, builds every image there and starts the stack, then checks the result twice: from inside the guest, and from your machine. Nothing is pulled ready-made: each of the ten images is built from its own Dockerfile on <code>alpine:3.23</code>.</p>
+
+<h2>3. Open it</h2>
+<p><code>https://dlesieur.42.fr/</code> is WordPress's front page, and the landing is at <code>/dream/</code>. <code>/blog/</code> and <code>/wiki/</code> are WordPress too, <code>/lab/</code> is the lab, and <code>/wp-admin/</code> is where a maintainer signs in. The certificate is issued by a local certification authority that your browsers are taught to trust, so there is a real padlock and no warning to click through.</p>
+[callout type="info" title="next"]Read on in order: the machine underneath, the door (nginx), how Docker is used here, where credentials live, and how to maintain the site. The wiki covers every container in more depth.[/callout]

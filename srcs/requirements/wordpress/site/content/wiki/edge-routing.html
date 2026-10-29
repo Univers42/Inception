@@ -1,0 +1,42 @@
+<p>The domain is shared by three sites, routed by path at the edge:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Served by</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>/dream/</code> (and <code>/dream</code> → 301), <code>/_dream/</code></td>
+<td>the landing, <code>staticsite:8090</code> (§11.1)</td>
+</tr>
+<tr>
+<td><code>/deeper/</code> (and <code>/deeper</code> → 301)</td>
+<td>Deeper, the same container (§11.1)</td>
+</tr>
+<tr>
+<td><code>/lab/</code>, <code>/api/v1/</code></td>
+<td>the lab, <code>web:8080</code> and <code>api:3000</code> (below)</td>
+</tr>
+<tr>
+<td>everything else, the bare <code>/</code> included</td>
+<td>WordPress over FastCGI: the front page, <code>/blog/</code>, <code>/wiki/</code>, <code>/wp-admin/</code></td>
+</tr>
+</tbody></table>
+</div>
+<p>For the lab, <code>srcs/requirements/nginx/conf/nginx.conf</code> gains two <code>^~</code> prefix locations. <code>^~</code> matters: it stops the regex locations from matching, so <code>/lab/_astro/x.js</code> is proxied instead of being looked for under <code>/var/www/html</code>. <code>absolute_redirect off</code> keeps nginx&#39;s own redirects (<code>/lab</code> → <code>/lab/</code>) relative, so they survive a remapped port.</p>
+<p>Both proxy to an <code>upstream</code> block, <code>lab_web</code> and <code>lab_api</code>, instead of the variable WordPress uses (§11.6):</p>
+<pre><code class="language-nginx">upstream lab_api {
+    zone              lab_api 64k;
+    resolver          127.0.0.11 valid=10s ipv6=off;
+    server            api:3000 resolve;
+    keepalive         32;
+    keepalive_timeout 4s;   # node closes an idle keep-alive socket after 5 s
+}
+</code></pre>
+<ul>
+<li><strong><code>keepalive</code></strong>. nginx reuses connections to the upstream. A variable in <code>proxy_pass</code> rules that out, so each request opens a connection and leaves it in TIME_WAIT for a minute. Measured with the variable: 3 300 req/s to <code>/api/v1/</code> filled the nginx container&#39;s whole local port range (28 267 sockets) in 9 s, and every request after that got a 502. With the pool: 12 700 req/s for 8 s, no errors, a few hundred sockets.</li>
+<li><strong><code>resolve</code></strong> (nginx 1.27.3 and later; the image runs 1.28.3). The name is re-resolved through Docker&#39;s DNS, so <code>web</code> or <code>api</code> recreated on a new IP is found again without an nginx restart. Verified by recreating both while other containers held their old addresses: 502 for about 5 s, inside the <code>valid=10s</code> window the variable also has, then 200.</li>
+<li><strong><code>keepalive_timeout 4s</code></strong> stays under the upstream&#39;s own idle timeout, so nginx never picks a connection the other end is closing.</li>
+</ul>
+<p>WordPress keeps its variable. The load is not on the FastCGI side, and the mandatory location stays as it was.</p>

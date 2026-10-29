@@ -1,0 +1,50 @@
+[
+  {
+    "slug": "start-here",
+    "title": "Start here: from an empty machine to a running platform",
+    "file": "series/start-here.html",
+    "date": "2026-10-27 10:00:00",
+    "excerpt": "Two repositories, three commands: born2root builds the virtual machine, Inception runs ten containers inside it, and your browser opens https://dlesieur.42.fr.",
+    "tags": ["getting started", "born2root", "inception"]
+  },
+  {
+    "slug": "the-machine-underneath",
+    "title": "The machine underneath: why everything starts with Born2beRoot",
+    "file": "series/the-machine-underneath.html",
+    "date": "2026-10-26 10:00:00",
+    "excerpt": "A Debian server on an encrypted disk, installed without a single question and sized from one number. What the virtual machine is, and why Inception runs on it.",
+    "tags": ["born2root", "debian", "virtual machine"]
+  },
+  {
+    "slug": "nginx-the-only-door",
+    "title": "nginx, the only door",
+    "file": "series/nginx-the-only-door.html",
+    "date": "2026-10-25 10:00:00",
+    "excerpt": "One port, TLS 1.2 and 1.3 only, and a routing table that sends each path to the container that owns it. How the edge is set up, and what it refuses.",
+    "tags": ["nginx", "tls", "security"]
+  },
+  {
+    "slug": "docker-the-way-this-stack-uses-it",
+    "title": "Docker, the way this stack uses it",
+    "file": "series/docker-the-way-this-stack-uses-it.html",
+    "date": "2026-10-24 10:00:00",
+    "excerpt": "Built, not pulled. One daemon per container, as PID 1. Data in named volumes, passwords in files. The rules behind the ten containers, and why each one exists.",
+    "tags": ["docker", "compose", "mindset"]
+  },
+  {
+    "slug": "credentials-where-they-live",
+    "title": "Credentials: where they live and how they move",
+    "file": "series/credentials-where-they-live.html",
+    "date": "2026-10-23 10:00:00",
+    "excerpt": "From a secrets file on the host to /run/secrets in a container, without ever passing through an environment variable or a command line, and what guards the sign-in page.",
+    "tags": ["secrets", "security", "wordpress"]
+  },
+  {
+    "slug": "maintaining-the-site",
+    "title": "Maintaining the site: a post, a wiki page, a diagram",
+    "file": "series/maintaining-the-site.html",
+    "date": "2026-10-22 10:00:00",
+    "excerpt": "Sign in, write, publish. How a maintainer adds to the blog and the wiki, draws a diagram, and how what is written in wp-admin and what comes from the repository live side by side.",
+    "tags": ["wordpress", "wiki", "maintenance"]
+  }
+]

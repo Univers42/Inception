@@ -17,12 +17,12 @@
 
 <h2>Credentials</h2>
 <p>All passwords live in the <code>secrets/</code> directory at the project root. If you don't create them yourself, random ones are generated on first <code>make</code>:</p>
-<table>
+<div class="table-scroll"><table>
 <tr><th>file</th><th>contains</th></tr>
 <tr><td><code>secrets/credentials.txt</code></td><td>WP admin password (line 1), editor password (line 2)</td></tr>
 <tr><td><code>secrets/db_password.txt</code></td><td>MariaDB application-user password</td></tr>
 <tr><td><code>secrets/db_root_password.txt</code></td><td>MariaDB root password</td></tr>
-</table>
+</table></div>
 [cmd]cat secrets/credentials.txt[/cmd]
 <p>The two WordPress users: an <strong>administrator</strong> (username from <code>WP_ADMIN_USER</code> in <code>srcs/.env</code>, default <code>superuser</code> — the subject forbids any name containing “admin”) and an <strong>editor</strong> (<code>WP_USER</code>, default <code>editor</code>).</p>
 

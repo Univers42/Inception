@@ -1,0 +1,12 @@
+# Third-party plugins baked into the image: "slug version", one per line.
+# Fetched at build time from downloads.wordpress.org into the image, copied
+# into wp-content/plugins and activated by install.sh on every boot, so the
+# container never downloads code while it starts. Bump a version here, then
+# `make build`. Pinned 2026-10-28 from api.wordpress.org; each one declares
+# itself tested with WordPress 7.1.3.
+redis-cache 3.0.0
+wedocs 2.6.1
+easy-table-of-contents 2.0.89
+relevanssi 4.28.6
+code-block-pro 1.28.0
+autodescription 5.2.0

@@ -1,0 +1,45 @@
+<ul>
+<li><strong>Build-time content.</strong> Pages that show database rows are rendered from JSON snapshots in <code>web/app/src/data/</code> (<code>flights.json</code>, <code>stats.json</code>, <code>stack.json</code>). <code>make snapshot</code> refreshes them from the running API through nginx and reads the daemon versions with <code>docker exec</code>. <code>make re-web</code> then rebuilds and replaces the <code>web</code> container only.</li>
+<li><strong>A flight created after the build</strong> has no page on disk. nginx serves <code>404.html</code>, and its script recognises <code>/lab/flights/&lt;id&gt;/</code> and draws that flight from the API.</li>
+<li><strong>No inline code.</strong> The CSP is <code>script-src &#39;self&#39;; style-src &#39;self&#39;</code> with no <code>unsafe-inline</code>. Astro is set to <code>inlineStylesheets: &#39;never&#39;</code> and Vite to <code>assetsInlineLimit: 0</code>. Meters are text (<code>█░</code>), not inline widths.</li>
+<li><strong>Caching.</strong> <code>/lab/_astro/*</code> is hashed, so it is <code>immutable</code> for a year. HTML is <code>no-cache</code>. Fonts get 30 days.</li>
+<li><strong>What runs in the browser.</strong> No framework and no third party. Each live part is a module script that attaches to markup already on the page. There are no <code>client:*</code> islands, because there is no component framework to hydrate.</li>
+</ul>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Script</th>
+<th>Loaded on</th>
+<th>Why at load</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>lib/boot.ts</code> (status bar, keymap, palette, poll loop)</td>
+<td>every page</td>
+<td>the keyboard is the primary input</td>
+</tr>
+<tr>
+<td><code>hero/Daemons.ts</code> (machine room)</td>
+<td><code>/lab/</code></td>
+<td>its loop runs only while the canvas is visible</td>
+</tr>
+<tr>
+<td><code>islands/counters.ts</code>, <code>flight-table.ts</code>, <code>cabinets.ts</code></td>
+<td>where those tables are</td>
+<td>swap numbers when a poll answers</td>
+</tr>
+<tr>
+<td><code>islands/dispatch.ts</code>, <code>guestbook.ts</code></td>
+<td>forms</td>
+<td>send JSON, show the API&#39;s own error</td>
+</tr>
+<tr>
+<td><code>lib/traffic.ts</code> (the wires stream)</td>
+<td><code>/lab/</code>, and <code>:wires</code> anywhere</td>
+<td>opens only while the room panel is on screen</td>
+</tr>
+</tbody></table>
+</div>
+<p>Measured JavaScript on <code>/lab/</code>: 14.2 KB gzipped, against a 30 KB budget (checked by <code>make test-lab</code>, L11).</p>
+<p><strong>The engine</strong> (<code>hero/Daemons.ts</code>). It runs a fixed 60 Hz simulation inside <code>requestAnimationFrame</code>, catching up at most one second. The canvas is 320×160 logical pixels scaled by an integer factor in device pixels, and sprites are rasterised once from ASCII art in <code>hero/sprites.ts</code>. The loop pauses when the canvas leaves the viewport or the tab is hidden. With <code>prefers-reduced-motion</code> there is no loop at all: one still frame is drawn whenever the data changes. Every movement is tied to an API event; <code>DESIGN.md</code> §4 has the table.</p>
+<p><strong>Keys.</strong> <code>Alt+1…4</code> switch pages, <code>:</code> opens the command palette, <code>/</code> filters (or opens the palette), <code>?</code> shows the cheatsheet, <code>gg</code>/<code>G</code> jump to top or bottom, and <code>j</code>/<code>k</code> scroll. No shortcut fires while an input has focus. The palette&#39;s commands are <code>help</code>, <code>goto</code>, <code>flights</code>, <code>flight &lt;id|callsign&gt;</code>, <code>stats</code>, <code>health</code>, <code>dispatch &lt;from&gt; &lt;to&gt; [kb] [note]</code>, <code>theme</code>, <code>q</code>.</p>

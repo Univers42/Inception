@@ -50,12 +50,17 @@ function inception_kit_register_patterns() {
 		'stat-tiles'      => array(
 			'title'       => 'Stat tiles',
 			'description' => 'A grid of big numbers with labels (value|label;…).',
-			'content'     => "<!-- wp:shortcode -->\n[stats]~13s|cold build;~7s|fresh boot;40/41|checks green[/stats]\n<!-- /wp:shortcode -->",
+			'content'     => "<!-- wp:shortcode -->\n[stats]~13 s|cold build;~7 s|fresh boot;40/41|checks green[/stats]\n<!-- /wp:shortcode -->",
 		),
 		'architecture'    => array(
 			'title'       => 'Architecture diagram',
 			'description' => 'The three-container request-flow diagram.',
 			'content'     => "<!-- wp:shortcode -->\n[arch]\n<!-- /wp:shortcode -->",
+		),
+		'diagram'         => array(
+			'title'       => 'Diagram (Mermaid)',
+			'description' => 'A Code block with the class "mermaid": write Mermaid, the page draws it.',
+			'content'     => "<!-- wp:code {\"className\":\"mermaid\"} -->\n<pre class=\"wp-block-code mermaid\"><code>flowchart LR\n    browser([Browser]) --&gt;|HTTPS :443| nginx\n    nginx --&gt;|FastCGI :9000| wordpress\n    wordpress --&gt;|TCP :3306| mariadb[(MariaDB)]</code></pre>\n<!-- /wp:code -->",
 		),
 		'inline-extras'   => array(
 			'title'       => 'Inline: kbd + badge',

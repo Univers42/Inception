@@ -1,0 +1,140 @@
+<p>The cable duct under the machine room&#39;s floor has three lanes, and six wires run in them. Every request, command or statement on a wire is a dot. Its colour says what happened and its timing is real. Only its speed is slowed for the eye: a dot takes half a second to cross, whatever the wire&#39;s length. A panel on the canvas wall and a table under the canvas give each wire&#39;s requests per second, median latency, and how many requests one dot stands for.</p>
+<p><strong>How each wire is known.</strong> The API is one end of three wires and sees every event on them. It can only count the other three.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Wire</th>
+<th>Source</th>
+<th>What it gives</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>nginx → api</td>
+<td>the request handler, on finish: status and cache verdict</td>
+<td>every request, with latency</td>
+</tr>
+<tr>
+<td>api → redis</td>
+<td><code>redis.js</code>, on each reply</td>
+<td>every command, with latency</td>
+</tr>
+<tr>
+<td>api → mariadb</td>
+<td><code>db.js</code>, on each statement, internal ones included (counters, schema, probes)</td>
+<td>every statement, with latency</td>
+</tr>
+<tr>
+<td>nginx → wordpress</td>
+<td>php-fpm <code>accepted conn</code>, read over FastCGI (<code>fpm.js</code>) once a second</td>
+<td>a count per second</td>
+</tr>
+<tr>
+<td>wordpress → redis</td>
+<td>Redis <code>INFO stats</code> once a second, minus the API&#39;s own commands</td>
+<td>a count per second, with hits and misses</td>
+</tr>
+<tr>
+<td>wordpress → mariadb</td>
+<td><code>SHOW GLOBAL STATUS LIKE &#39;Questions&#39;</code> once a second, minus the API&#39;s own statements</td>
+<td>a count per second</td>
+</tr>
+</tbody></table>
+</div>
+<p>A sampled wire counts every client that is not the API. In practice that is WordPress, plus nginx&#39;s healthcheck, which fetches <code>/</code> every 10 s: a real page. Redis <code>MONITOR</code> would give single commands, but it slows Redis down more than the traffic it watches.</p>
+<p><strong>Colours.</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Colour</th>
+<th>Means</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>cyan</td>
+<td>a cache hit: the request was answered from Redis, or a <code>GET</code> found its key</td>
+</tr>
+<tr>
+<td>yellow</td>
+<td>a cache miss: the request went to MariaDB, or a <code>GET</code> found nothing. On api → mariadb, the statements that load a miss are yellow too (an <code>AsyncLocalStorage</code> around the loader in <code>cache.js</code>)</td>
+</tr>
+<tr>
+<td>magenta</td>
+<td>a statement over 100 ms</td>
+</tr>
+<tr>
+<td>red</td>
+<td>a 4xx or 5xx answer (429 included), an error reply, a lost command</td>
+</tr>
+<tr>
+<td>white</td>
+<td>everything else</td>
+</tr>
+</tbody></table>
+</div>
+<p><strong>Taking away the API&#39;s own share.</strong></p>
+<ul>
+<li><p><strong>Redis.</strong> Replies come back in the order commands were sent on the one connection. <code>redis.info()</code> resolves with the client&#39;s counters as they stood when Redis ran the <code>INFO</code>. Every command in those counters ran before it, and no later one is included. Keyspace hits and misses are counted the way Redis counts them: <code>GET</code>, each key of <code>MGET</code>, and <code>TTL</code>. Writes are not counted.</p>
+</li>
+<li><p><strong>MariaDB.</strong> <code>db.own.statements</code> includes the <code>SHOW</code> itself, and so does <code>Questions</code>. A statement still in flight on another pool connection can make one sample come out at −1. That −1 is carried into the next sample instead of being clamped to 0, so no phantom request appears and none is lost.</p>
+</li>
+<li><p><strong>php-fpm.</strong> Two findings, each measured before anything was built on it:</p>
+<ol>
+<li>nginx forwards PHP with <code>fastcgi_keep_conn on</code> but has no upstream keepalive pool. It asks php-fpm to keep the connection, then closes it. php-fpm counts the request, then counts again while waiting for a next request on that connection. Measured: a page counts 2 (40 of 40 requests) and a plain FastCGI request such as the API&#39;s status read counts 1 (3 of 3). Hence <code>config.fpm.countsPerRequest = 2</code>. <code>tests/lab.sh</code> L26 fails if ten page views stop reading as ten.</li>
+<li>An empty TCP connection counts as well (20 of 20). WordPress&#39;s healthcheck was <code>nc -z 127.0.0.1 9000</code> every 3 s, which drew a request that never happened on the wire every 6 s. It now reads the listening socket with <code>netstat</code>, the same rule as the FTP healthcheck (§11.3). The check is no weaker: the kernel completed nc&#39;s handshake from the listen backlog whether php-fpm could serve or not.</li>
+</ol>
+<p>The status page (<code>pm.status_path = /fpm-status</code> in <code>www.conf</code>) is not reachable through nginx. Every request nginx forwards names a real <code>.php</code> file in <code>SCRIPT_NAME</code>. L27 checks this.</p>
+</li>
+</ul>
+<p><strong>Delivery.</strong> <code>GET /api/v1/traffic</code> answers with <code>text/event-stream</code>.</p>
+<ul>
+<li><strong>Batches.</strong> One frame every 200 ms carries everything since the last frame, never one message per request. A frame has per-wire counts by outcome, its window, and the p50 over the last second. When a wire had 48 events or fewer, each event&#39;s offset in the window is included too, so a burst replays with its real spacing. Sampled wires arrive once a second. An idle stream still gets one frame a second, so the page can tell quiet from gone.</li>
+<li><strong>No buffering.</strong> <code>X-Accel-Buffering: no</code> turns nginx&#39;s buffering off for this response only. L24 checks that frames arrive within 1.5 s.</li>
+<li><strong>Nothing runs unwatched.</strong> Nothing is recorded or sampled while no stream is open. The page holds its stream only while the machine room panel is on screen and the tab is visible.</li>
+<li><strong>Slow clients.</strong> A client that cannot keep up loses frames (<code>writableNeedDrain</code>); the API never buffers for it.</li>
+<li><strong>Limits.</strong> 4 streams per address (429) and 64 in all (503).</li>
+<li><strong>Shutdown.</strong> A stream does not count as in flight for the SIGTERM drain. Shutdown sends <code>event: bye</code>, ends every stream, then drains, and <code>EventSource</code> reconnects on its own. L22 (<code>--deep</code>) checks this.</li>
+</ul>
+<p><strong>In the browser</strong> (<code>lib/traffic.ts</code>, <code>hero/Daemons.ts</code>). There is one <code>EventSource</code>, opened and closed by leases: the room holds one while visible, and <code>:wires</code> holds one for a moment.</p>
+<ul>
+<li><strong>Rate.</strong> A wire&#39;s rate is the sum of the last second of frames, or the last sample for a sampled wire.</li>
+<li><strong>Scale.</strong> Past 60 dots on one wire at once, a dot stands for 2, 5, 10 or more requests. The scale steps back down only below half that, so it does not flap.</li>
+<li><strong>Colours stay true.</strong> Each outcome carries its own remainder, so colours keep their true proportions, and a rare error still gets its dot, only later.</li>
+<li><strong>Reduced motion.</strong> With <code>prefers-reduced-motion</code> no dots are drawn, but the panel and the table still update.</li>
+</ul>
+<p><strong>Measured.</strong> 64 keep-alive connections sending GETs through nginx, 8 s per phase, on a 42 workstation:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>nobody watching</th>
+<th>the room open in a browser</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>requests per second through nginx</td>
+<td>12 691</td>
+<td>12 596</td>
+</tr>
+<tr>
+<td>errors</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr>
+<td>API CPU</td>
+<td>101 % of a core</td>
+<td>94 % of a core</td>
+</tr>
+<tr>
+<td>browser frames</td>
+<td>—</td>
+<td>60 fps, p95 16.7 ms, worst 16.8 ms</td>
+</tr>
+<tr>
+<td>wires table</td>
+<td>—</td>
+<td>nginx → api 13 579/s at 200 requests per dot; api → redis about three times that (a <code>GET</code> and two <code>INCRBY</code> per request)</td>
+</tr>
+</tbody></table>
+</div>
+<p>The throughput difference is within noise. While someone watches, recording is an array push per event; while nobody does, it is a boolean test.</p>

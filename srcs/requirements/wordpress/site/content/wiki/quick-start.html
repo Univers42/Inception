@@ -1,0 +1,34 @@
+<pre><code class="language-bash">git clone &lt;this-repository-url&gt; inception
+cd inception
+make
+</code></pre>
+<p><code>make</code> (with no arguments) does everything, in order:</p>
+<ol>
+<li><strong><code>setup</code></strong> — creates data directories, generates <code>srcs/.env</code>, generates random passwords under <code>secrets/</code>, adds an entry to <code>/etc/hosts</code>, and issues a local TLS certificate. All of this is described in detail in §4 below.</li>
+<li><strong>Build &amp; start</strong> — builds the ten Docker images from their Dockerfiles and starts the ten containers.</li>
+</ol>
+<p>The very first run takes roughly 15–30 seconds (downloading packages, building images, initialising the database and WordPress). Expect one <code>sudo</code> password prompt during step 1 (to add a line to <code>/etc/hosts</code>) — <strong>this only happens on the first run</strong>.</p>
+<blockquote>
+<p>If <code>sudo</code> fails with <code>sorry, you must have a tty to run sudo</code> (this happens when <code>make</code> is driven by another program instead of a normal interactive terminal), run this one line yourself in a real terminal first, then re-run <code>make</code>:</p>
+<pre><code class="language-bash">echo &quot;127.0.0.1 dlesieur.42.fr&quot; | sudo tee -a /etc/hosts
+</code></pre>
+</blockquote>
+<p>When it finishes, check that all ten containers are healthy:</p>
+<pre><code class="language-bash">docker compose -f srcs/docker-compose.yml ps
+</code></pre>
+<p>Expected output — all ten <code>Up ... (healthy)</code>, since every image carries a healthcheck:</p>
+<pre><code class="language-text">NAME         STATUS               PORTS
+adminer      Up (healthy)         0.0.0.0:8080-&gt;8080/tcp
+api          Up (healthy)         3000/tcp
+dbbackup     Up (healthy)
+ftp          Up (healthy)         0.0.0.0:21-&gt;21/tcp, 0.0.0.0:21000-21010-&gt;21000-21010/tcp
+mariadb      Up (healthy)         3306/tcp
+nginx        Up (healthy)         0.0.0.0:443-&gt;443/tcp
+redis        Up (healthy)         6379/tcp
+staticsite   Up (healthy)         0.0.0.0:8090-&gt;8090/tcp
+web          Up (healthy)         8080/tcp
+wordpress    Up (healthy)         9000/tcp
+</code></pre>
+<p>A port shown without an <code>0.0.0.0:...-&gt;</code> prefix (mariadb, redis, wordpress, web, api) is network-internal — the container listens on it, but the host cannot reach it. That is deliberate, not a missing rule.</p>
+<p>(<code>make status</code> does the same thing.)</p>
+<hr>

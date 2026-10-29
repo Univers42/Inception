@@ -1,0 +1,22 @@
+<p>Two git-ignored files adapt the stack to such a host. The graded <code>docker-compose.yml</code> is unchanged, and on the VM neither file exists.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it changes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>srcs/docker-compose.local.yml</code> (from the <code>.example</code>)</td>
+<td>Rootless Docker cannot bind 443, so ports are remapped (nginx <code>9443:443</code>). The volumes are renamed <code>*_local</code> and pointed at <code>$INCEPTION_DATA_DIR</code>.</td>
+</tr>
+<tr>
+<td><code>srcs/local.mk</code> (from the <code>.example</code>)</td>
+<td><code>DATA_DIR=/goinfre/&lt;login&gt;/inception-data</code> holds the volumes on the local disk. <code>DOCKER_CONFIG</code> keeps the Docker CLI&#39;s state on sgoinfre instead of the home directory.</td>
+</tr>
+</tbody></table>
+</div>
+<p>Why <code>/goinfre</code> and not sgoinfre for the data: the sgoinfre NFS share rejects the <code>chown</code> a container&#39;s <code>mysql</code> user needs (<code>chown: Invalid argument</code> under rootless Docker), so MariaDB cannot initialise there. With the override, <code>make test</code> reports S20 (<code>/etc/hosts</code>), R02 (port 443) and R13 (volume path) as host-only differences. The same tree on the VM passes them.</p>
+<p>Reach the site without <code>/etc/hosts</code> or sudo:</p>
+<pre><code class="language-bash">curl -k --resolve dlesieur.42.fr:9443:127.0.0.1 https://dlesieur.42.fr:9443/lab/
+</code></pre>

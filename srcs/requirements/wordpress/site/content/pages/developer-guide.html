@@ -8,7 +8,7 @@
 [/term_window]
 
 <h2>The Makefile is the API</h2>
-<table>
+<div class="table-scroll"><table>
 <tr><th>target</th><th>effect</th></tr>
 <tr><td><code>make up</code> / <code>make down</code></td><td>provision + build + start / stop &amp; remove (data kept)</td></tr>
 <tr><td><code>make test</code> / <code>make test-deep</code></td><td>compliance suite; deep adds crash-restart + persistence</td></tr>
@@ -16,14 +16,14 @@
 <tr><td><code>make run_wp</code></td><td>guided WordPress health report</td></tr>
 <tr><td><code>make trust</code></td><td>install the local CA into system + browser trust stores</td></tr>
 <tr><td><code>make clean</code> / <code>make re</code></td><td>remove project containers/volumes/images/data / full rebuild</td></tr>
-</table>
+</table></div>
 
 <h2>Entrypoint good practices</h2>
 <p>Every container boots through the same disciplined pattern:</p>
 <ol>
 <li><strong>Fail fast</strong> — <code>set -eu</code>, required env validated, secrets checked non-empty. The WordPress entrypoint refuses any admin username containing “admin”.</li>
 <li><strong>Guarded one-time init</strong> — MariaDB bootstraps accounts via <code>mariadbd --bootstrap</code> behind a success-marker file; WordPress deploys its staged core and installs itself behind a <code>wp-config.php</code> guard. Interrupted first boots self-heal.</li>
-<li><strong>Bounded waits</strong> — the DB wait probes with <code>php -r 'mysqli_connect(…)'</code> and gives up after 60s; the restart policy retries. Never a follow-the-file loop, an endless sleep, or an infinite shell loop.</li>
+<li><strong>Bounded waits</strong> — the DB wait probes with <code>php -r 'mysqli_connect(…)'</code> and gives up after 60 s; the restart policy retries. Never a follow-the-file loop, an endless sleep, or an infinite shell loop.</li>
 <li><strong><code>exec</code> as the last line</strong> — the daemon becomes PID 1 and receives signals directly.</li>
 </ol>
 
@@ -40,4 +40,4 @@
 <h2>Testing</h2>
 [cmd]make test-deep[/cmd]
 [out]══ Summary ══  40 passed  1 failed  0 warnings  0 skipped[/out]
-<p>The suite maps one-to-one to subject v5.2: penultimate-Alpine verified live against Docker Hub, image/service naming, forbidden patterns, network and volume rules, secrets hygiene (tracked files <em>and git history</em>), TLS enforcement, the two WP users, PID 1 daemons, crash-restart and persistence. See the <a href="/defense-qa/">Defense Q&amp;A</a> for live-proof commands.</p>
+<p>The suite maps one-to-one to subject v5.2: penultimate-Alpine verified live against Docker Hub, image/service naming, forbidden patterns, network and volume rules, secrets hygiene (tracked files <em>and git history</em>), TLS enforcement, the two WP users, PID 1 daemons, crash-restart and persistence. See the <a href="/wiki/defense/defense-qa/">Defense Q&amp;A</a> for live-proof commands.</p>

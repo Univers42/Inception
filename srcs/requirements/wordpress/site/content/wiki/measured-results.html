@@ -1,0 +1,47 @@
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Before rework</th>
+<th>After</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>True cold build (<code>--no-cache --pull</code>, empty caches)</td>
+<td>25.8 s</td>
+<td><strong>~13 s</strong></td>
+</tr>
+<tr>
+<td>Package-layer rebuild (warm caches)</td>
+<td>—</td>
+<td><strong>~7 s</strong></td>
+</tr>
+<tr>
+<td>Config-change rebuild</td>
+<td>3.9 s</td>
+<td><strong>≤2 s</strong></td>
+</tr>
+<tr>
+<td>Fresh first boot → live site</td>
+<td>14.4 s <em>(blank, broken site)</em></td>
+<td><strong>~7 s (working site)</strong></td>
+</tr>
+<tr>
+<td>Warm restart → live site</td>
+<td>—</td>
+<td><strong>~3.5 s</strong></td>
+</tr>
+<tr>
+<td>Full pipeline, virgin machine (<code>make</code>)</td>
+<td>~40 s (broken site)</td>
+<td><strong>~20 s</strong></td>
+</tr>
+<tr>
+<td>Images total</td>
+<td>578 MB</td>
+<td><strong>420 MB</strong> (mariadb 160, wordpress 244, nginx 16)</td>
+</tr>
+</tbody></table>
+</div>
+<p>Methodology notes: &quot;true cold&quot; is honest — Docker 29 discards cache mounts under <code>--no-cache</code>, and the bench additionally clears its dedicated cache IDs. Numbers degrade substantially on a loaded machine; benchmark on a quiet one.</p>
+<hr>

@@ -1,0 +1,38 @@
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause / fix</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A container restart-loops</td>
+<td><code>docker logs &lt;name&gt;</code> — entrypoints fail fast with explicit messages</td>
+</tr>
+<tr>
+<td><code>error 1290 ... skip-grant-tables</code> in mariadb logs</td>
+<td>The bootstrap SQL must keep its leading <code>FLUSH PRIVILEGES;</code> (grant tables aren&#39;t loaded in <code>--bootstrap</code> mode)</td>
+</tr>
+<tr>
+<td>nginx crash-loop: <code>shared memory zone &quot;SSL&quot;</code></td>
+<td>Alpine&#39;s main nginx.conf already defines the SSL session cache — don&#39;t redeclare <code>ssl_session_cache</code> in the vhost</td>
+</tr>
+<tr>
+<td>Changed a password but nothing applies</td>
+<td>Init guards (§6) — values are baked at first boot: <code>make clean &amp;&amp; make</code></td>
+</tr>
+<tr>
+<td>Browser says the certificate is untrusted</td>
+<td>Expected with a local CA — accept once or run <code>make trust</code></td>
+</tr>
+<tr>
+<td><code>make bench</code> numbers look bad</td>
+<td>Machine load skews everything — benchmark on a quiet machine (see §8.3)</td>
+</tr>
+<tr>
+<td>Compose errors about missing secret files</td>
+<td>Run through <code>make</code> (not raw compose): <code>make setup</code> provisions secrets and certs first</td>
+</tr>
+</tbody></table>
+</div>
+<hr>

@@ -1,0 +1,139 @@
+<h2>Use of Docker and sources included</h2>
+<p>Everything needed to build the infrastructure lives in this repository: a root <code>Makefile</code> that orchestrates the whole lifecycle, and <code>srcs/</code> containing the <code>docker-compose.yml</code> plus one build context per service (<code>srcs/requirements/&lt;service&gt;/</code> = <code>Dockerfile</code> + <code>conf/</code> + <code>tools/entrypoint.sh</code>). Docker builds each service into an isolated, reproducible image; Compose wires the three containers together over a private bridge network, mounts the named volumes, and injects configuration (environment variables) and credentials (secrets). The stack can be destroyed and rebuilt identically in seconds with <code>make re</code> — see <code>DEV_DOC.md</code> for the main design choices and the performance work behind them.</p>
+<h2>Virtual Machines vs Docker</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Virtual Machine</th>
+<th>Docker Container</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Isolation</strong></td>
+<td>Full hardware-level (hypervisor)</td>
+<td>Process-level (kernel namespaces + cgroups)</td>
+</tr>
+<tr>
+<td><strong>Boot time</strong></td>
+<td>Minutes</td>
+<td>Seconds</td>
+</tr>
+<tr>
+<td><strong>Resource overhead</strong></td>
+<td>High (full guest OS)</td>
+<td>Minimal (shares host kernel)</td>
+</tr>
+<tr>
+<td><strong>Image size</strong></td>
+<td>Gigabytes</td>
+<td>Megabytes (Alpine ≈ 5 MB)</td>
+</tr>
+<tr>
+<td><strong>Portability</strong></td>
+<td>Limited to hypervisor</td>
+<td>Runs anywhere Docker is installed</td>
+</tr>
+<tr>
+<td><strong>Use case</strong></td>
+<td>Different OS kernels, strong security boundaries</td>
+<td>Microservices, CI/CD, reproducible builds</td>
+</tr>
+</tbody></table>
+</div>
+<h2>Secrets vs Environment Variables</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Environment Variables</th>
+<th>Docker Secrets</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Visibility</strong></td>
+<td>Visible in <code>docker inspect</code>, process table</td>
+<td>Mounted as files at <code>/run/secrets/</code></td>
+</tr>
+<tr>
+<td><strong>Persistence</strong></td>
+<td>Stored in compose file or <code>.env</code></td>
+<td>Stored in separate files, referenced by compose</td>
+</tr>
+<tr>
+<td><strong>Security</strong></td>
+<td>Acceptable for non-sensitive config</td>
+<td>Required for passwords, keys, credentials</td>
+</tr>
+<tr>
+<td><strong>Git safety</strong></td>
+<td><code>.env</code> in <code>.gitignore</code></td>
+<td><code>secrets/</code> directory in <code>.gitignore</code></td>
+</tr>
+</tbody></table>
+</div>
+<p>In this project, non-sensitive configuration (domain name, database name, usernames) is passed via environment variables, while all passwords are delivered exclusively as Docker secrets with root-only file modes. The TLS server key is also a secret, and the CA private key never leaves the host.</p>
+<h2>Docker Network vs Host Network</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Docker Bridge Network</th>
+<th>Host Network</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Isolation</strong></td>
+<td>Containers have private IPs on a virtual bridge</td>
+<td>Containers share the host&#39;s network stack</td>
+</tr>
+<tr>
+<td><strong>Security</strong></td>
+<td>Nothing exposed unless explicitly published</td>
+<td>All container ports directly on the host</td>
+</tr>
+<tr>
+<td><strong>Service discovery</strong></td>
+<td>Containers resolve each other by service name</td>
+<td><code>localhost</code> + unique ports</td>
+</tr>
+<tr>
+<td><strong>Port conflicts</strong></td>
+<td>None (each container has its own IP)</td>
+<td>Possible</td>
+</tr>
+</tbody></table>
+</div>
+<p>This project uses a <strong>bridge network</strong> (<code>inception</code>) — only NGINX&#39;s port 443 is published; WordPress and MariaDB are unreachable from outside the Docker network. <code>network_mode: host</code> and <code>links:</code> are forbidden by the subject and absent.</p>
+<h2>Docker Volumes vs Bind Mounts</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Named Volumes</th>
+<th>Bind Mounts</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Management</strong></td>
+<td>Managed by Docker (<code>docker volume ls</code>)</td>
+<td>Direct host path in the service definition</td>
+</tr>
+<tr>
+<td><strong>Portability</strong></td>
+<td>Higher — the name abstracts the location</td>
+<td>Lower — tied to host filesystem layout</td>
+</tr>
+<tr>
+<td><strong>Permissions</strong></td>
+<td>Docker handles ownership</td>
+<td>Host file permissions apply</td>
+</tr>
+<tr>
+<td><strong>Lifecycle</strong></td>
+<td>Independent of containers</td>
+<td>None (just a path)</td>
+</tr>
+</tbody></table>
+</div>
+<p>This project uses <strong>named volumes</strong> (<code>inception_db_data</code>, <code>inception_wp_data</code>) declared at the top level of the compose file with <code>driver: local</code> and a <code>device</code> option, so their data lives at the deterministic host path <code>/home/dlesieur/data/</code> required by the subject while remaining proper Docker named volumes — no service ever bind-mounts a host path directly.</p>

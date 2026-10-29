@@ -1,0 +1,8 @@
+<p>Three parts have to line up, and it is the third that is usually missed:</p>
+<ol>
+<li><code>php84-pecl-redis</code> in the WordPress image (the PHP extension).</li>
+<li><code>WP_REDIS_HOST</code>, <code>WP_REDIS_PORT</code>, <code>WP_CACHE_KEY_SALT</code> and <code>WP_CACHE</code> in <code>wp-config.php</code>. The salt is the domain, so two installs sharing a Redis instance cannot read each other&#39;s keys.</li>
+<li><strong>The drop-in.</strong> <code>wp redis enable</code> writes <code>wp-content/object-cache.php</code>. Without it the plugin is installed, active, and caching nothing.</li>
+</ol>
+<p>The entrypoint does all three, <strong>non-fatally</strong> — the site must boot even if Redis is unreachable, because a cache is an optimisation, not a dependency. It also patches an <em>existing</em> <code>wp-config.php</code>: the config heredoc only runs on a first install, and the site volume outlives image rebuilds.</p>
+<p>Redis is configured as a cache, not a database — <code>save &quot;&quot;</code>, <code>appendonly no</code>, <code>maxmemory 256mb</code>, <code>maxmemory-policy allkeys-lru</code>. Without an eviction policy Redis answers writes with an error once full, which WordPress would surface as a broken page rather than a cache miss.</p>

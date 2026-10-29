@@ -1,0 +1,8 @@
+<pre><code class="language-bash">make test-deep                                   # the whole subject, automated
+make status                                      # 3 × Up (healthy)
+docker exec nginx  ps -o pid,comm                # PID 1 = nginx
+docker exec nginx  kill 1 &amp;&amp; sleep 5 &amp;&amp; make status   # crash-restart proof
+docker volume inspect inception_wp_data          # named volume + device path
+docker exec wordpress wp --allow-root user list  # the two users, admin rule
+make bench                                       # build performance, honest cold
+</code></pre>

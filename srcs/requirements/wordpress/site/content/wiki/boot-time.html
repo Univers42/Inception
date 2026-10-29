@@ -1,0 +1,7 @@
+<ul>
+<li><strong>Zero-download first boot</strong> — WordPress core is copied from the image (<code>/usr/src/wordpress</code>), not downloaded. This is also a correctness fix: it is deterministic and immune to Docker&#39;s volume copy-up semantics (a previous <code>--skip-content</code> approach produced a site with <strong>no themes</strong> — a blank page).</li>
+<li><strong><code>mariadbd --bootstrap</code> init</strong> — replaces the classic start-temp-server → poll → SQL → shutdown dance with one direct SQL application.</li>
+<li><strong>Fast readiness detection</strong> — all healthchecks use <code>--start-interval=500ms</code>: during startup, readiness is polled twice a second instead of every 3 s, removing up to ~3 s of dead time <em>per dependency hop</em>.</li>
+<li><strong>Meaningful healthchecks</strong> — MariaDB is &quot;healthy&quot; only when the <em>application user</em> can connect over TCP (exactly what WordPress needs); WordPress when php-fpm accepts FastCGI connections; nginx when HTTPS answers. <code>depends_on: service_healthy</code> chains them, so each service starts exactly when the layer below is usable.</li>
+<li><strong>Fewer PHP boots during install</strong> — <code>wp-config.php</code> is written by heredoc (with locally generated salts) instead of <code>wp config create</code>, and the full-tree <code>chown -R</code> was replaced by a targeted <code>find -user root</code> (the copied tree already carries the right ownership from the image).</li>
+</ul>

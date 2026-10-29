@@ -1,0 +1,5 @@
+<p>No <code>node</code> or <code>npm</code> ever runs on the host. <code>nodetool:inception</code> (<code>srcs/requirements/bonus/nodetool/</code>) is a CLI image with the same <code>alpine:3.23</code> + <code>apk add nodejs npm</code> as the build stages. Like 42ctl, it is not a compose service.</p>
+<pre><code class="language-bash">make lock                                    # re-resolve both package-lock.json files
+make npm-web NPM=&quot;outdated&quot;                  # any npm command, in the web app directory
+make npm-api NPM=&quot;install mysql2@3.24.4 --package-lock-only&quot;
+</code></pre>

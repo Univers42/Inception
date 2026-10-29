@@ -1,0 +1,15 @@
+<pre class="mermaid">flowchart TB
+    accTitle: The mandatory stack
+    accDescr: The browser reaches nginx over HTTPS on port 443 with TLS 1.2 or 1.3. nginx terminates TLS and passes PHP requests to WordPress over FastCGI on internal port 9000. WordPress, php-fpm 8.4 with no web server, queries MariaDB 11.4 over TCP on internal port 3306.
+    client([Browser]) --&gt;|"HTTPS :443, TLS 1.2 / 1.3"| nginx
+    nginx["&lt;b&gt;nginx&lt;/b&gt;&lt;br/&gt;TLS termination, the only published port&lt;br/&gt;static files from the shared volume, read-only"]
+    nginx --&gt;|"FastCGI :9000, internal"| wordpress["&lt;b&gt;WordPress&lt;/b&gt;&lt;br/&gt;php-fpm 8.4 + WP-CLI&lt;br/&gt;no web server inside"]
+    wordpress --&gt;|"TCP :3306, internal"| mariadb[("&lt;b&gt;MariaDB 11.4&lt;/b&gt;&lt;br/&gt;no web server inside")]</pre>
+<ul>
+<li>All three containers sit on the <strong><code>inception</code> bridge network</strong>; they resolve each other by service name through Docker&#39;s embedded DNS. Only 443 is published.</li>
+<li><strong>Naming rules</strong> (subject): each image is named after its service (<code>nginx:inception</code>, <code>wordpress:inception</code>, <code>mariadb:inception</code> — never <code>latest</code>), and the containers are named <code>nginx</code>, <code>wordpress</code>, <code>mariadb</code>.</li>
+<li>Each service is a self-contained build context: <code>srcs/requirements/&lt;service&gt;/{Dockerfile, conf/, tools/entrypoint.sh}</code>.</li>
+<li>nginx mounts the WordPress volume <strong>read-only</strong> and serves static assets itself; only <code>.php</code> requests are forwarded over FastCGI.</li>
+</ul>
+<p>A fourth container (bonus, §11.1) serves the landing, a static React site with its own nginx on 8090. The edge proxies <code>https://&lt;login&gt;.42.fr/dream/</code> to it, never the bare domain: the eval sheet opens <code>https://&lt;login&gt;.42.fr/</code> expecting the configured WordPress site, so <code>/</code> is WordPress&#39;s front page (<code>front-page.php</code>, rendering the <em>Home</em> page). The landing shares no volume or secret with the mandatory trio above.</p>
+<hr>

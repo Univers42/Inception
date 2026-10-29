@@ -1,38 +1,44 @@
 <?php
 get_header();
+$inception_title = is_home() ? 'Notes from the build.' : get_the_archive_title();
+$inception_sub   = is_home() ? 'The bugs, the measurements and the fixes behind the stack, one post at a time.' : get_the_archive_description();
 ?>
-
-<section class="archive">
-	<div class="shell shell-narrow">
-		<header class="archive-head">
-			<h1 class="section-title"><span class="section-prompt">$</span> cat journal.log</h1>
-			<p class="archive-sub">Engineering journal — the build, the bugs, the numbers.</p>
-		</header>
-
-		<?php if ( have_posts() ) : ?>
-			<div class="loglist loglist-full">
-				<?php
-				while ( have_posts() ) :
-					the_post();
-					?>
-				<a class="logline logline-rich" href="<?php the_permalink(); ?>">
-					<span class="log-ts"><?php echo esc_html( get_the_date( 'Y-m-d\TH:i' ) ); ?></span>
-					<span class="log-level" aria-hidden="true">[post]</span>
-					<span class="log-body">
-						<span class="log-title"><?php the_title(); ?></span>
-						<span class="log-excerpt"><?php echo esc_html( get_the_excerpt() ); ?></span>
-					</span>
-					<span class="log-meta"><?php echo function_exists( 'inception_kit_reading_time' ) ? (int) inception_kit_reading_time() . ' min' : ''; ?></span>
-				</a>
-				<?php endwhile; ?>
-			</div>
-			<nav class="pager" aria-label="Posts navigation">
-				<?php the_posts_pagination( array( 'prev_text' => '← prev', 'next_text' => 'next →' ) ); ?>
-			</nav>
-		<?php else : ?>
-			<p class="archive-empty">journal.log is empty — nothing here yet.</p>
-		<?php endif; ?>
-	</div>
+<section class="page-hero shell">
+	<p class="eyebrow"><?php echo is_home() ? 'The journal' : 'Archive'; ?></p>
+	<h1 class="display"><?php echo wp_kses_post( $inception_title ); ?></h1>
+	<?php if ( $inception_sub ) : ?>
+		<p class="lede"><?php echo wp_kses_post( wp_strip_all_tags( $inception_sub ) ); ?></p>
+	<?php endif; ?>
 </section>
 
-<?php get_footer(); ?>
+<section class="shell">
+	<?php if ( have_posts() ) : ?>
+		<ol class="post-grid">
+			<?php
+			$inception_i = 0;
+			while ( have_posts() ) :
+				the_post();
+				$inception_lead = 0 === $inception_i++ && ! is_paged();
+				?>
+				<li class="post-card reveal<?php echo $inception_lead ? ' post-card-lead' : ''; ?>">
+					<?php inception_terminal_post_meta( null, false ); ?>
+					<h2 class="post-card-title"><a class="card-link" href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h2>
+					<p class="post-card-excerpt"><?php echo esc_html( get_the_excerpt() ); ?></p>
+					<span class="more" aria-hidden="true">Read the post →</span>
+				</li>
+			<?php endwhile; ?>
+		</ol>
+		<?php
+		the_posts_pagination(
+			array(
+				'prev_text' => '← Newer',
+				'next_text' => 'Older →',
+			)
+		);
+		?>
+	<?php else : ?>
+		<p class="empty">Nothing here yet. <a href="<?php echo esc_url( home_url( '/wiki/' ) ); ?>">The wiki</a> has the long version.</p>
+	<?php endif; ?>
+</section>
+<?php
+get_footer();

@@ -1,0 +1,23 @@
+<p><code>crond</code> as PID 1 — a real daemon, not a keep-alive loop. An initial backup runs at startup so the service is demonstrably working rather than merely scheduled, and so the healthcheck has something to verify. The healthcheck asserts a <strong>valid</strong> dump exists (<code>gzip -t</code>), not that the process is alive.</p>
+<p>Environment is written into the crontab line itself, because cron jobs do not inherit the container&#39;s environment.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>BACKUP_CRON</code></td>
+<td><code>0 */6 * * *</code></td>
+<td>schedule</td>
+</tr>
+<tr>
+<td><code>BACKUP_KEEP</code></td>
+<td><code>7</code></td>
+<td>how many dumps to retain</td>
+</tr>
+</tbody></table>
+</div>
+<p>Data lives in the <code>backup_data</code> named volume → <code>/home/dlesieur/data/backups</code>, following the same host-path rule as the two mandatory volumes.</p>

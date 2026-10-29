@@ -1,0 +1,86 @@
+{
+  "$comment": "The wiki's tree. Every page is cut from the project's own docs ('FILE.md#exact heading text': the heading and everything under it until the next heading of the same or a higher level; add \"intro\": true to stop at the first sub-heading) or copies a curated page ('page:name' = site/content/pages/name.html). Order is the order here. Regenerate with `make wiki`.",
+  "docs": [
+    {
+      "slug": "start-here", "title": "Start here", "from": "README.md#Description",
+      "summary": "What Inception is, how to run it, and where everything lands.",
+      "children": [
+        { "slug": "the-ten-services", "title": "The ten services", "from": "USER_DOC.md#1. What you get" },
+        { "slug": "quick-start", "title": "Quick start", "from": "USER_DOC.md#3. Get the project and start it", "children": [
+          { "slug": "what-make-sets-up", "title": "What make sets up", "from": "USER_DOC.md#4. What `make` set up for you (and where to find it)" }
+        ] },
+        { "slug": "in-the-browser", "title": "In the browser", "from": "USER_DOC.md#5. Viewing the website in your browser" },
+        { "slug": "daily-operations", "title": "Daily operations", "from": "USER_DOC.md#7. Starting, stopping, and restarting", "children": [
+          { "slug": "health-checks", "title": "Is everything running?", "from": "USER_DOC.md#6. Checking that the services are running correctly" },
+          { "slug": "your-data", "title": "Where your data lives", "from": "USER_DOC.md#8. Where is my data, and how do I wipe it?" }
+        ] },
+        { "slug": "user-guide", "title": "User guide, condensed", "from": "page:user-guide" }
+      ]
+    },
+    {
+      "slug": "architecture", "title": "Architecture", "from": "DEV_DOC.md#3. Architecture",
+      "summary": "One door, three levels, and the rules every container follows.",
+      "children": [
+        { "slug": "architecture-overview", "title": "The stack at a glance", "from": "page:architecture" },
+        { "slug": "persistence", "title": "Data and persistence", "from": "DEV_DOC.md#5. Data storage and persistence" },
+        { "slug": "entrypoints", "title": "Entrypoint design", "from": "DEV_DOC.md#6. Entrypoint design & good practices" },
+        { "slug": "security", "title": "Security practices", "from": "DEV_DOC.md#7. Security practices" },
+        { "slug": "edge-routing", "title": "Edge routing", "from": "DEV_DOC.md#13.1 Edge routing" },
+        { "slug": "container-ips", "title": "nginx and container IPs", "from": "DEV_DOC.md#11.6 A note on nginx and container IPs" }
+      ]
+    },
+    {
+      "slug": "services", "title": "Services", "from": "DEV_DOC.md#11. Bonus services",
+      "summary": "Every bonus container: what it does, why it exists, how it is proven.",
+      "children": [
+        { "slug": "the-landing", "title": "The landing (static site)", "from": "DEV_DOC.md#11.1 Bonus: static website (no PHP)" },
+        { "slug": "the-website", "title": "The blog and the wiki", "from": "DEV_DOC.md#11. The documentation website (site/)" },
+        { "slug": "redis", "title": "Redis object cache", "from": "DEV_DOC.md#11.2 Redis object cache" },
+        { "slug": "ftp", "title": "FTP", "from": "DEV_DOC.md#11.3 FTP" },
+        { "slug": "adminer", "title": "Adminer", "from": "DEV_DOC.md#11.4 Adminer" },
+        { "slug": "backups", "title": "Scheduled backups", "from": "DEV_DOC.md#11.5 Scheduled backups (free choice)" },
+        { "slug": "the-lab", "title": "The lab: web + api", "from": "DEV_DOC.md#13. The lab: `web` + `api` (bonus, free choice)", "intro": true, "children": [
+          { "slug": "lab-configuration", "title": "Configuration", "from": "DEV_DOC.md#13.2 Configuration" },
+          { "slug": "lab-api", "title": "The API", "from": "DEV_DOC.md#13.3 API" },
+          { "slug": "lab-web", "title": "The machine room", "from": "DEV_DOC.md#13.4 Web" },
+          { "slug": "lab-wires", "title": "The wires", "from": "DEV_DOC.md#13.5 The wires: live traffic on the machine room's cables" },
+          { "slug": "lab-node", "title": "Node without Node on the host", "from": "DEV_DOC.md#13.6 Node without Node on the host" },
+          { "slug": "lab-rootless", "title": "Rootless Docker, small home", "from": "DEV_DOC.md#13.7 A host with rootless Docker and a small home (42 workstations)" },
+          { "slug": "lab-tests", "title": "Lab tests", "from": "DEV_DOC.md#13.8 Tests" }
+        ] }
+      ]
+    },
+    {
+      "slug": "engineering", "title": "Engineering", "from": "DEV_DOC.md#8. Performance engineering", "intro": true,
+      "summary": "Building, measuring and testing the stack.",
+      "children": [
+        { "slug": "environment", "title": "Environment from scratch", "from": "DEV_DOC.md#1. Setting up the environment from scratch" },
+        { "slug": "build-and-launch", "title": "Build and launch", "from": "DEV_DOC.md#2. Building and launching (Makefile → Docker Compose)" },
+        { "slug": "containers-and-volumes", "title": "Containers and volumes", "from": "DEV_DOC.md#4. Managing containers and volumes" },
+        { "slug": "build-time", "title": "Build time", "from": "DEV_DOC.md#8.1 Build-time" },
+        { "slug": "boot-time", "title": "Boot time", "from": "DEV_DOC.md#8.2 Boot-time" },
+        { "slug": "measured-results", "title": "Measured results", "from": "DEV_DOC.md#8.3 Measured results (idle 8-core machine, Docker 29)", "children": [
+          { "slug": "benchmarks", "title": "Benchmarks, condensed", "from": "page:benchmarks" }
+        ] },
+        { "slug": "testing", "title": "Testing and compliance", "from": "DEV_DOC.md#9. Testing & compliance" },
+        { "slug": "troubleshooting", "title": "Troubleshooting", "from": "DEV_DOC.md#12. Troubleshooting" },
+        { "slug": "developer-guide", "title": "Developer guide, condensed", "from": "page:developer-guide" }
+      ]
+    },
+    {
+      "slug": "defense", "title": "Defense", "from": "DEV_DOC.md#10. Defense preparation Q&A", "intro": true,
+      "summary": "The questions an evaluator asks, and the commands that answer them live.",
+      "children": [
+        { "slug": "docker-fundamentals", "title": "Docker fundamentals", "from": "DEV_DOC.md#Docker fundamentals" },
+        { "slug": "nginx-and-tls", "title": "NGINX and TLS", "from": "DEV_DOC.md#NGINX & TLS" },
+        { "slug": "wordpress-and-php-fpm", "title": "WordPress and php-fpm", "from": "DEV_DOC.md#WordPress & php-fpm" },
+        { "slug": "mariadb", "title": "MariaDB", "from": "DEV_DOC.md#MariaDB" },
+        { "slug": "docker-mechanics", "title": "Docker mechanics", "from": "DEV_DOC.md#Docker mechanics the subject insists on" },
+        { "slug": "live-proof", "title": "Live-proof cheat sheet", "from": "DEV_DOC.md#Live-proof cheat sheet (run these during the defense)" },
+        { "slug": "small-modifications", "title": "Small modifications", "from": "DEV_DOC.md#Typical \"small modification\" requests — where to touch" },
+        { "slug": "comparisons", "title": "The four comparisons", "from": "README.md#Project description" },
+        { "slug": "defense-qa", "title": "Defense Q&A, condensed", "from": "page:defense-qa" }
+      ]
+    }
+  ]
+}

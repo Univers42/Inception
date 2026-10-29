@@ -136,9 +136,11 @@ fi
 if wp core is-installed --allow-root --path=/var/www/html 2>/dev/null; then
     sync_wp_password() {
         [ -n "$1" ] && [ -n "$2" ] || return 0
-        wp eval --allow-root --path=/var/www/html \
-            "exit( is_wp_error( wp_authenticate( \$argv[0], \$argv[1] ) ) ? 1 : 0 );" \
-            "$1" "$2" > /dev/null 2>&1 && return 0
+        # check-password, not `wp eval '...' "$1" "$2"`: WP-CLI 2.12's eval
+        # refuses positional arguments, so that probe always failed and both
+        # passwords were reset on every boot.
+        wp user check-password "$1" "$2" --allow-root --path=/var/www/html \
+            > /dev/null 2>&1 && return 0
         echo "[entrypoint] '$1' password does not match the secret — resetting it ..."
         wp user update "$1" --user_pass="$2" --skip-email \
             --allow-root --path=/var/www/html > /dev/null 2>&1 \
@@ -146,6 +148,26 @@ if wp core is-installed --allow-root --path=/var/www/html 2>/dev/null; then
     }
     sync_wp_password "$WP_ADMIN_USER" "$WP_ADMIN_PASSWORD"
     sync_wp_password "$WP_USER"       "$WP_USER_PASSWORD"
+
+    # The administrator signs in with this address (born2root writes it into
+    # srcs/.env from its own secrets file); wp core install set it only once.
+    if [ "$(wp user get "$WP_ADMIN_USER" --field=user_email --allow-root --path=/var/www/html 2>/dev/null)" != "$WP_ADMIN_EMAIL" ]; then
+        echo "[entrypoint] '$WP_ADMIN_USER' email differs from WP_ADMIN_EMAIL — updating it ..."
+        { wp user update "$WP_ADMIN_USER" --user_email="$WP_ADMIN_EMAIL" --skip-email \
+                --allow-root --path=/var/www/html \
+            && wp option update admin_email "$WP_ADMIN_EMAIL" \
+                --allow-root --path=/var/www/html; } > /dev/null 2>&1 \
+            || echo "[entrypoint] WARN: could not set the administrator's email" >&2
+    fi
+
+    # No theme or plugin editor in wp-admin: the image is the source of both
+    # (site/install.sh copies them back on every boot), and an editor that runs
+    # PHP turns a stolen admin session into code execution. The anchor is the
+    # ABSPATH guard: this wp-config.php, written above, has no "stop editing" line.
+    wp config get DISALLOW_FILE_EDIT --allow-root --path=/var/www/html > /dev/null 2>&1 \
+        || wp config set DISALLOW_FILE_EDIT true --raw --anchor="if ( ! defined( 'ABSPATH' ) )" \
+            --placement=before --allow-root --path=/var/www/html > /dev/null 2>&1 \
+        || echo "[entrypoint] WARN: could not set DISALLOW_FILE_EDIT" >&2
 fi
 
 if [ -f /var/www/html/wp-config.php ] \
@@ -174,11 +196,10 @@ fi
 hellish /usr/src/inception-site/install.sh \
     || echo "[entrypoint] WARN: site provisioning failed (service boots anyway)" >&2
 
+# The plugin itself ships in the image (site/plugins.txt) and install.sh has
+# activated it; this only places the object-cache.php drop-in.
 enable_redis_cache() {
-    if ! wp plugin is-active redis-cache --allow-root --path=/var/www/html 2>/dev/null; then
-        wp plugin install redis-cache --force --activate \
-            --allow-root --path=/var/www/html || return 1
-    fi
+    wp plugin is-active redis-cache --allow-root --path=/var/www/html 2>/dev/null || return 1
     [ -s /var/www/html/wp-content/object-cache.php ] \
         || wp redis enable --allow-root --path=/var/www/html || return 1
 }

@@ -1,81 +1,41 @@
+/*
+ * The block editor, on the same tokens as the site (tokens.css is loaded
+ * first by add_editor_style), so a draft reads the way it will publish.
+ */
 body {
-	background: #0b0e14;
-	color: #c9d4e3;
-	font-family: "JetBrains Mono", "Cascadia Mono", "Fira Code",
-		ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-	font-size: 16px;
-	line-height: 1.7;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--step-0);
+    line-height: var(--leading-body);
 }
 
-.editor-styles-wrapper h1,
-.editor-styles-wrapper h2,
-.editor-styles-wrapper h3,
-.editor-styles-wrapper h4 {
-	color: #c9d4e3;
-	font-family: inherit;
-	font-weight: 700;
-}
-.editor-styles-wrapper h2::before { content: "## "; color: #4ae383; }
-.editor-styles-wrapper h3::before { content: "### "; color: #5c6b80; }
-
-.editor-styles-wrapper a { color: #5ccfe6; }
-
-.editor-styles-wrapper .wp-block-post-title {
-	color: #4ae383;
-	font-family: inherit;
-	text-shadow: 0 0 18px rgba(74, 227, 131, 0.28);
-}
-.editor-styles-wrapper .wp-block-post-title::before { content: "$ "; color: #4ae383; }
-
-.editor-styles-wrapper code {
-	background: #141a25;
-	border: 1px solid #1e2836;
-	border-radius: 4px;
-	padding: 0.1em 0.4em;
-	color: #ffb454;
-	font-family: inherit;
+.editor-post-title__input,
+.wp-block-post-title {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: var(--step-5);
+    line-height: var(--leading-tight);
 }
 
-.editor-styles-wrapper pre,
-.editor-styles-wrapper .wp-block-code {
-	background: #080b10;
-	border: 1px solid #1e2836;
-	border-radius: 4px;
-	color: #c9d4e3;
-	font-family: inherit;
+h2, h3, h4 { font-family: var(--font-sans); font-weight: 600; letter-spacing: -0.01em; }
+a { color: var(--link); }
+
+code {
+    padding: 0.12em 0.4em;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.86em;
 }
 
-.editor-styles-wrapper blockquote,
-.editor-styles-wrapper .wp-block-quote {
-	border-left: 3px solid #4ae383;
-	background: #10151e;
-	padding: 0.5em 1em;
-	margin: 1.5em 0;
-	font-style: normal;
+pre {
+    padding: 1.1rem 1.25rem;
+    border-radius: 14px;
+    background: var(--code-bg);
+    color: #d6deea;
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
 }
 
-.editor-styles-wrapper table {
-	border-collapse: collapse;
-	font-size: 0.875em;
-}
-.editor-styles-wrapper th,
-.editor-styles-wrapper td {
-	border: 1px solid #1e2836;
-	padding: 0.55em 0.85em;
-}
-.editor-styles-wrapper th { background: #141a25; color: #4ae383; }
-
-.editor-styles-wrapper .wp-block-shortcode {
-	background: #10151e;
-	border: 1px dashed #2a3648;
-	border-radius: 4px;
-	color: #c9d4e3;
-	font-family: inherit;
-}
-.editor-styles-wrapper .wp-block-shortcode textarea {
-	background: transparent;
-	color: #4ae383;
-	font-family: inherit;
-}
-
-::selection { background: #4ae383; color: #080b10; }
+blockquote { border-left: 3px solid var(--level-1); padding-left: 1.1em; color: var(--text-muted); }

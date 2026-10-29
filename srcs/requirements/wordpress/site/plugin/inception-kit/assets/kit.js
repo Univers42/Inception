@@ -59,12 +59,27 @@
 					var link = map[entry.target.id];
 					if (!link) return;
 					if (entry.isIntersecting) {
-						links.forEach(function (a) { a.classList.remove('is-active'); });
+						links.forEach(function (a) {
+							a.classList.remove('is-active');
+							a.removeAttribute('aria-current');
+						});
 						link.classList.add('is-active');
+						link.setAttribute('aria-current', 'location');
 					}
 				});
 			}, { rootMargin: '0px 0px -70% 0px' });
 			heads.forEach(function (h) { observer.observe(h); });
 		}
+	});
+
+	// A command wider than its line scrolls; only then is it a tab stop, so
+	// the keyboard can reach its end without a stop on every short command.
+	document.addEventListener('DOMContentLoaded', function () {
+		document.querySelectorAll('.ik-cmd-scroll').forEach(function (el) {
+			if (el.scrollWidth <= el.clientWidth + 1) return;
+			el.tabIndex = 0;
+			el.setAttribute('role', 'region');
+			el.setAttribute('aria-label', 'Command, scrolls sideways');
+		});
 	});
 })();

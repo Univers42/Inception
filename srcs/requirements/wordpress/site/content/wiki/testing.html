@@ -1,0 +1,20 @@
+<pre><code class="language-bash">make test        # static + runtime checks — no sudo needed
+make test-deep   # + kills PID 1 in each container, cycles down/up, checks persistence
+</code></pre>
+<p><code>tests/compliance.sh</code> maps one-to-one to subject v5.2: repository structure and Makefile role; <strong>penultimate stable Alpine verified live against Docker Hub</strong>; no <code>latest</code>; every image built locally and named after its service; no prohibited keep-alive hacks; network line present, no host networking, no <code>links:</code>; restart policy; only port 443 published; two named volumes under <code>/home/login/data</code> with no service bind mounts; secrets configured, git-ignored, absent from tracked files <em>and git history</em>; <code>.env</code> usage; admin-username rule (statically and against the live DB); entrypoints ending in <code>exec</code>; TLS 1.2/1.3 accepted and 1.0/1.1 rejected; certificate identity; a real WordPress page served; exactly two WP users with a compliant administrator; an active theme; PID 1 is the real daemon; service isolation (no nginx in the app containers); secrets not leaked via environment; crash-restart; persistence.</p>
+<h2>9.1 ShellCheck and the <code>#!/bin/hellish</code> shebang</h2>
+<p>Every script under <code>srcs/</code> and <code>tests/</code> starts with <code>#!/bin/hellish</code>, and ShellCheck only knows <code>sh</code>, <code>bash</code>, <code>dash</code>, <code>ksh</code> and <code>busybox sh</code>. On an unknown shebang it emits SC1008 and then refuses to analyse the file at all, so the fourteen scripts were being reported as errors while receiving no checking whatsoever.</p>
+<p>The fix is the directive SC1008 itself asks for, on line 2 of each script:</p>
+<pre><code class="language-sh">#!/bin/hellish
+# shellcheck shell=sh
+</code></pre>
+<p>That declaration is honest rather than a mute button. hellish describes itself as an almost-POSIX shell diffed against <code>bash --posix</code>, and it was verified before the directive was added: a thirty-construct battery covering the parameter expansions, arithmetic, <code>case</code> globs, heredocs, <code>trap</code>, subshells and <code>read</code> loops these scripts actually use produces byte-identical output under <code>hellish</code>, <code>dash</code> and <code>bash --posix</code>; all fourteen scripts also parse identically under <code>hellish -n</code> and <code>dash -n</code>. Under <code>shell=sh</code> ShellCheck reports zero errors across them, which means the scripts were already POSIX-clean and the directive costs no coverage.</p>
+<p>Do <strong>not</strong> put <code>shell=sh</code> in a repository-level <code>.shellcheckrc</code>. That key overrides a real <code>#!/bin/bash</code> shebang rather than acting as a fallback, so it would raise false SC3044/SC3054 &quot;undefined in POSIX sh&quot; warnings on the bash scripts in the <code>vendor/scripts</code> submodule. Per-file directives are scoped correctly; a root config is not.</p>
+<p>If a script ever needs a genuine hellish extension that POSIX lacks, the directive becomes a lie and ShellCheck will say so. Fix the script rather than the directive.</p>
+<p><strong>Pre-submission checklist:</strong></p>
+<ul>
+<li><code>make test-deep</code> fully green.</li>
+<li>Re-run near the defense date: the &quot;penultimate stable Alpine&quot; target moves when Alpine releases — the suite checks Docker Hub live and will tell you to bump.</li>
+<li>The history check (S15) fails until old credential-bearing commits are rewritten out of the repository — the subject makes repo credentials an automatic failure.</li>
+</ul>
+<hr>

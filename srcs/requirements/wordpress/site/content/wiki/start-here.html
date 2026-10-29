@@ -1,0 +1,32 @@
+<p>Inception is a system-administration project that builds a small, production-style web infrastructure from scratch using <strong>Docker Compose</strong>. The goal is to understand how containerised services are built, isolated, connected, and persisted — by writing every Dockerfile by hand instead of pulling ready-made images.</p>
+<p>The stack runs three services, each in its own dedicated container:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>NGINX</strong></td>
+<td>TLS termination — the only entrypoint, port 443, TLSv1.2/1.3 only</td>
+</tr>
+<tr>
+<td><strong>WordPress + php-fpm 8.4</strong></td>
+<td>Application server (FastCGI, no web server inside)</td>
+</tr>
+<tr>
+<td><strong>MariaDB 11.4</strong></td>
+<td>Relational database (no web server inside)</td>
+</tr>
+</tbody></table>
+</div>
+<p>Key properties:</p>
+<ul>
+<li>All images are built locally from <strong><code>alpine:3.23</code></strong> — the <em>penultimate stable</em> Alpine release, as the subject requires. No service image is ever pulled.</li>
+<li>Persistent data (database + site files) lives in <strong>Docker named volumes</strong> stored under <code>/home/dlesieur/data</code> on the host.</li>
+<li>All credentials are delivered through <strong>Docker secrets</strong> — never hard-coded, never in environment variables, never committed to Git.</li>
+<li>The TLS certificate is issued by a <strong>local CA on the host</strong>; the CA private key never enters any container.</li>
+<li>The repository ships its own <strong>compliance test suite</strong> (<code>make test</code>) that maps one-to-one to the subject&#39;s rules, and <strong>benchmarks</strong> (<code>make bench</code>): a fresh clone reaches a live site in ~20 s, a rebuilt stack in under 10 s.</li>
+</ul>
+<hr>

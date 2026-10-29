@@ -1,0 +1,114 @@
+/*
+ * wp-login.php in the site's design: the shared tokens and fonts, loaded after
+ * WordPress's own login.css (it is a dependency), so these rules win on order
+ * rather than on !important.
+ */
+body.login {
+    background:
+        radial-gradient(60rem 36rem at 50% -12%, color-mix(in srgb, var(--level-1) 16%, transparent), transparent 70%),
+        var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+}
+
+.login h1 a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: auto;
+    height: auto;
+    margin: 0 auto var(--space-5);
+    padding-left: 2.4rem;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cpath d='M16 2.5v6' stroke='%23f0b45a' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M4.5 11.5C9 7.8 23 7.8 27.5 11.5L16.4 29.2a.5.5 0 0 1-.8 0z' fill='%23e9a63f'/%3E%3C/svg%3E") no-repeat left center / 1.9rem;
+    text-indent: 0;
+    font: 400 var(--step-3) / 1 var(--font-display);
+    color: var(--text);
+}
+
+.login h1 a:focus { box-shadow: 0 0 0 2px var(--focus); border-radius: var(--radius-s); }
+
+.inception-login-note {
+    margin: 0 0 var(--space-4);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.login form {
+    margin-top: 0;
+    padding: 1.75rem 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow-lift);
+}
+
+.login label { color: var(--text-muted); font-size: 0.9rem; }
+
+.login form .input,
+.login input[type="text"],
+.login input[type="password"],
+.login input[type="email"] {
+    min-height: 44px;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface-sunken);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-s);
+    box-shadow: none;
+    color: var(--text);
+    font-size: 1rem;
+}
+
+.login input[type="checkbox"] { background: var(--surface-sunken); border-color: var(--line-strong); }
+
+.login input:focus,
+.login input[type="checkbox"]:focus {
+    border-color: var(--focus);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 45%, transparent);
+    outline: none;
+}
+
+.login .button.wp-hide-pw { color: var(--text-muted); }
+.login .button.wp-hide-pw:focus { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus); }
+
+.login .button-primary,
+.login .button-primary:focus,
+.login .button-primary:hover {
+    min-height: 44px;
+    padding: 0 1.4rem;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-pill);
+    color: var(--on-accent);
+    font-weight: 600;
+    text-shadow: none;
+    box-shadow: none;
+}
+
+.login .button-primary:hover { background: color-mix(in srgb, var(--accent) 86%, var(--text)); }
+.login .button-primary:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus); }
+
+.login .message,
+.login .notice,
+.login #login_error {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius-s);
+    box-shadow: none;
+    color: var(--text);
+}
+
+.login #login_error { border-left-color: var(--danger); }
+
+.login #nav,
+.login #backtoblog { text-align: center; }
+
+.login #nav a,
+.login #backtoblog a { color: var(--text-muted); }
+
+.login #nav a:hover,
+.login #backtoblog a:hover { color: var(--text); }
+
+.login .privacy-policy-page-link { display: none; }
