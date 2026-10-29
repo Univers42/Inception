@@ -6,11 +6,12 @@ this repository.
 ## What this is
 
 42 "Inception": a hand-built Docker Compose infrastructure. Three mandatory services
-(nginx / WordPress+php-fpm / MariaDB), each built from its own Dockerfile `FROM alpine:3.23`
+(nginx / WordPress+php-fpm / MariaDB), each built from its own Dockerfile `FROM alpine:3.23.7`
 — no pre-made service images. Bonus compose services: staticsite, redis, ftp, adminer,
 dbbackup, and the "lab" (`web` + `api`). Two more bonus images are CLIs and deliberately NOT
 compose services, because a CLI cannot be an honest PID-1 daemon: `42ctl` and `nodetool`.
-`srcs/requirements/bonus/app/` is tracked but referenced by nothing. The subject rules are
+Every Dockerfile in the tree, CLI images included, starts `FROM alpine:3.23.7` (compliance
+S03/S05 read them all). The subject rules are
 non-negotiable and are encoded as an executable test suite; treat a `make test` failure as a spec
 violation, not a flaky test.
 

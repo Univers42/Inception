@@ -19,7 +19,7 @@ echo "host: $(nproc) cpus, $(free -m 2>/dev/null | awk '/^Mem:/{print $2}')MB RA
 echo
 
 BUST=bench-cold
-printf 'FROM alpine:3.23\nRUN --mount=type=cache,id=%s-nginx,target=/c1 --mount=type=cache,id=%s-mariadb,target=/c2 --mount=type=cache,id=%s-wordpress,target=/c3 --mount=type=cache,id=%s-wpsrc,target=/c4 rm -rf /c1/* /c2/* /c3/* /c4/*\n' \
+printf 'FROM alpine:3.23.7\nRUN --mount=type=cache,id=%s-nginx,target=/c1 --mount=type=cache,id=%s-mariadb,target=/c2 --mount=type=cache,id=%s-wordpress,target=/c3 --mount=type=cache,id=%s-wpsrc,target=/c4 rm -rf /c1/* /c2/* /c3/* /c4/*\n' \
     "$BUST" "$BUST" "$BUST" "$BUST" | docker build --no-cache -q - >/dev/null 2>&1
 
 S=$(t); $COMPOSE build --no-cache --pull \
@@ -50,7 +50,7 @@ if [ "${1:-}" = "--with-boot" ]; then
     echo
     echo "boot benchmark — wiping $DATA_DIR for a fresh install ..."
     $COMPOSE down >/dev/null 2>&1
-    docker run --rm -v "$DATA_DIR":/d alpine:3.23 sh -c 'rm -rf /d/mariadb /d/wordpress' >/dev/null 2>&1 \
+    docker run --rm -v "$DATA_DIR":/d alpine:3.23.7 sh -c 'rm -rf /d/mariadb /d/wordpress' >/dev/null 2>&1 \
         || sudo rm -rf "$DATA_DIR/mariadb" "$DATA_DIR/wordpress"
     mkdir -p "$DATA_DIR/mariadb" "$DATA_DIR/wordpress"
 

@@ -1,4 +1,4 @@
-FROM alpine:3.23
+FROM alpine:3.23.7
 
 # the ARG declares build-time variable- only avialble while the image is being built
 # during docker build, not at container runtime

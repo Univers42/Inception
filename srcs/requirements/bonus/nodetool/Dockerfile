@@ -10,7 +10,7 @@
 # Like 42ctl, this is NOT a docker-compose service, and that is deliberate: npm
 # exits when its command finishes, and an Inception service must run a real
 # daemon as PID 1 with no keep-alive hack (compliance S06/S18/S23, R10/R19).
-FROM alpine:3.23
+FROM alpine:3.23.7
 
 ARG APK_CACHE_ID=apk
 ARG CACHE_BUST=0

@@ -10,7 +10,7 @@
 #   1. apk packages            — change with the Alpine pin only
 #   2. package.json + lockfile — change when Astro is bumped
 #   3. site sources            — change on every edit; only the render re-runs
-FROM alpine:3.23 AS build
+FROM alpine:3.23.7 AS build
 
 ARG APK_CACHE_ID=apk
 ARG CACHE_BUST=0
@@ -31,7 +31,7 @@ COPY app/ ./
 RUN npm run build
 
 
-FROM alpine:3.23
+FROM alpine:3.23.7
 
 ARG APK_CACHE_ID=apk
 ARG CACHE_BUST=0

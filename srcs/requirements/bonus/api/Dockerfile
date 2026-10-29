@@ -9,7 +9,7 @@
 #   1. apk packages            — change with the Alpine pin only
 #   2. package.json + lockfile — change when a dependency is bumped
 #   3. application sources     — change on every edit; only this layer rebuilds
-FROM alpine:3.23 AS deps
+FROM alpine:3.23.7 AS deps
 
 ARG APK_CACHE_ID=apk
 ARG CACHE_BUST=0
@@ -30,7 +30,7 @@ RUN --mount=type=cache,id=npm-api,target=/root/.npm \
     npm ci --omit=dev --no-audit --no-fund --ignore-scripts
 
 
-FROM alpine:3.23
+FROM alpine:3.23.7
 
 ARG APK_CACHE_ID=apk
 ARG CACHE_BUST=0

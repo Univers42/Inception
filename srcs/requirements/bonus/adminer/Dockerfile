@@ -1,4 +1,4 @@
-FROM alpine:3.23
+FROM alpine:3.23.7
 
 ARG APK_CACHE_ID=apk
 ARG CACHE_BUST=0
