@@ -38,7 +38,6 @@ LOGIN=$(sed -n 's/^LOGIN[[:space:]]*=[[:space:]]*//p' Makefile | head -1)
 DOMAIN=$(sed -n 's/^DOMAIN_NAME=//p' srcs/.env 2>/dev/null | head -1)
 [ -n "$DOMAIN" ] || DOMAIN="$LOGIN.42.fr"
 COMPOSE_FILE=srcs/docker-compose.yml
-DOCKERFILES="srcs/requirements/nginx/Dockerfile srcs/requirements/wordpress/Dockerfile srcs/requirements/mariadb/Dockerfile"
 ENTRYPOINTS="srcs/requirements/nginx/tools/entrypoint.sh srcs/requirements/wordpress/tools/entrypoint.sh srcs/requirements/mariadb/tools/entrypoint.sh"
 ALL_DOCKERFILES=$(ls srcs/requirements/*/Dockerfile srcs/requirements/*/*/Dockerfile 2>/dev/null)
 ALL_ENTRYPOINTS=$(ls srcs/requirements/*/tools/*.sh srcs/requirements/*/*/tools/*.sh 2>/dev/null)
@@ -196,7 +195,16 @@ if [ -f DEV_DOC.md ]; then
 fi
 [ $ok -eq 1 ] && pass "S26 USER_DOC.md and DEV_DOC.md cover every point the subject lists"
 
-BASES=$(grep -h '^FROM' $DOCKERFILES | awk '{print $2}' | sort -u)
+# The base each Dockerfile pulls, minus a FROM naming an earlier stage of the
+# same file (the "local image" the eval sheet allows). Every Dockerfile in the
+# tree, not only the three mandatory ones: the evaluator reads them all, and a
+# CLI image built FROM rust:* or a stale alpine:3.22 once passed this check
+# because it only looked at nginx, wordpress and mariadb.
+external_bases() {
+    awk 'FNR == 1 { split("", stage) }
+         /^FROM[[:space:]]/ { if (!($2 in stage)) print $2; if (toupper($3) == "AS") stage[$4] = 1 }' "$@"
+}
+BASES=$(external_bases $ALL_DOCKERFILES | sort -u)
 NBASE=$(printf '%s\n' "$BASES" | wc -l)
 LATEST=$(curl -fsS --max-time 8 "https://hub.docker.com/v2/repositories/library/alpine/tags?page_size=100&name=3." 2>/dev/null \
          | tr ',' '\n' | sed -n 's/.*"name":"\(3\.[0-9][0-9]*\)".*/\1/p' | sort -t. -k2 -n | uniq | tail -1)
@@ -204,8 +212,10 @@ if [ "$NBASE" != "1" ]; then
     fail "S03 all Dockerfiles must share one pinned base" "$(printf '%s' "$BASES" | tr '\n' ' ')"
 elif [ -n "$LATEST" ]; then
     PENULT="3.$(( ${LATEST#3.} - 1 ))"
-    if [ "$BASES" = "alpine:$PENULT" ]; then
-        pass "S03 base is penultimate stable Alpine (alpine:$PENULT; latest is $LATEST)"
+    # The eval sheet writes the base as 'FROM alpine:X.X.X': a patch release of
+    # the penultimate branch (alpine:3.23.7) passes, as does the branch tag.
+    if printf '%s' "$BASES" | grep -qxE "alpine:$(printf '%s' "$PENULT" | sed 's/\./\\./g')(\.[0-9]+)?"; then
+        pass "S03 base is penultimate stable Alpine ($BASES; latest is $LATEST)"
     else
         fail "S03 base must be alpine:$PENULT (penultimate; latest is $LATEST)" "found: $BASES"
     fi
@@ -229,6 +239,13 @@ else
     pass "S04 no ':latest' anywhere; every FROM is explicitly tagged"
 fi
 
+# Host ports a running container publishes, whatever the address: the
+# subject's compose binds 0.0.0.0, born2root's deploy override binds 127.0.0.1
+# and the NAT address instead, and the port is what both have in common.
+host_ports() {
+    docker ps --format '{{.Names}} {{.Ports}}' | grep -E "^($1) " | grep -oE ':[0-9]+->' | tr -d ':>-' | sort -un
+}
+
 svc_block() {
     awk -v tgt="  $1:" '$0==tgt{f=1;next} f && /^  [a-zA-Z0-9_-]+:[[:space:]]*$/{f=0} f' "$COMPOSE_FILE"
 }
@@ -237,9 +254,9 @@ ok=1
 for s in nginx wordpress mariadb; do
     svc_block "$s" | grep -q 'build:' || { ok=0; fail "S05 service $s has no build: directive"; }
 done
-FROMS=$(grep -h '^FROM' $DOCKERFILES | awk '{print $2}' | grep -vE '^(alpine|debian):' || true)
+FROMS=$(external_bases $ALL_DOCKERFILES | grep -vE '^(alpine|debian):' || true)
 [ -n "$FROMS" ] && { ok=0; fail "S05 non-Alpine/Debian base image" "$FROMS"; }
-[ $ok -eq 1 ] && pass "S05 all services built from local Dockerfiles, bases restricted to Alpine/Debian"
+[ $ok -eq 1 ] && pass "S05 all services built from local Dockerfiles; all $(printf '%s\n' $ALL_DOCKERFILES | wc -l) Dockerfiles start from Alpine/Debian"
 
 HACK_RE='tail[[:space:]]+-[fF]'
 HACK_RE="$HACK_RE"'|sleep[[:space:]]+infinity'
@@ -294,7 +311,7 @@ ok=1
 for s in wordpress mariadb; do
     svc_block "$s" | grep -q '^\s*ports:' && { ok=0; fail "S10 mandatory service '$s' must not publish ports"; }
 done
-NGINX_PORTS=$(svc_block nginx | awk '/^\s*ports:/{f=1;next} f && /^\s*-/{print;next} f{exit}' | tr -d ' "-')
+NGINX_PORTS=$(svc_block nginx | awk '/^[[:space:]]*ports:/{f=1;next} f && /^[[:space:]]*-/{print;next} f{exit}' | tr -d ' "-')
 if [ $ok -eq 1 ] && [ "$NGINX_PORTS" = "443:443" ]; then
     pass "S10 single published port: 443 (nginx)"
 else
@@ -531,7 +548,7 @@ else
     done
     [ $ok -eq 1 ] && pass "R01 nginx, wordpress and mariadb all running and healthy"
 
-    PUB=$(docker ps --format '{{.Names}} {{.Ports}}' | grep -E '^(nginx|wordpress|mariadb) ' | grep -oE '0\.0\.0\.0:[0-9]+|\[::\]:[0-9]+' | grep -oE '[0-9]+$' | sort -u)
+    PUB=$(host_ports 'nginx|wordpress|mariadb')
     if [ "$PUB" = "443" ]; then
         pass "R02 port 443 is the only published port"
     else
@@ -578,13 +595,29 @@ R03EOF
         fail "R04 unexpected certificate" "$CERT"
     fi
 
+    # The eval sheet opens the bare https://<login>.42.fr/ and expects "the
+    # configured WordPress website", not the installer: the front page has to
+    # be WordPress's, whatever bonus sits beside it. It once proxied to the
+    # landing (bonus staticsite), which a strict evaluator fails on sight.
     BODY=$(curl -ks --max-time 10 "https://$DOMAIN/")
     SIZE=${#BODY}
-    if [ "$SIZE" -gt 10000 ] && printf '%s' "$BODY" | grep -q 'wp-\(content\|includes\)'; then
-        pass "R05 https://$DOMAIN serves a real WordPress page ($SIZE bytes)"
+    if [ "$SIZE" -gt 10000 ] && printf '%s' "$BODY" | grep -q 'wp-\(content\|includes\)' \
+        && printf '%s' "$BODY" | grep -q '<body[^>]*class="[^"]*\bhome\b' \
+        && ! printf '%s' "$BODY" | grep -qiE 'install\.php|WordPress &rsaquo; Installation'; then
+        pass "R05 https://$DOMAIN/ is the configured WordPress front page ($SIZE bytes, not the installer)"
     else
-        fail "R05 front page missing or empty ($SIZE bytes)"
+        fail "R05 https://$DOMAIN/ is not the configured WordPress front page ($SIZE bytes)"
     fi
+
+    ok=1
+    LANDING=$(curl -ks --max-time 10 "https://$DOMAIN/dream/")
+    printf '%s' "$LANDING" | grep -q '/_dream/' \
+        || { ok=0; fail "R05b https://$DOMAIN/dream/ is not the landing (no /_dream/ bundle)"; }
+    printf '%s' "$LANDING" | grep -q 'wp-content' \
+        && { ok=0; fail "R05b https://$DOMAIN/dream/ was answered by WordPress, not the landing"; }
+    curl -ks --max-time 10 "https://$DOMAIN/blog/" | grep -q 'wp-\(content\|includes\)' \
+        || { ok=0; fail "R05b the WordPress blog is missing at /blog/"; }
+    [ $ok -eq 1 ] && pass "R05b the landing (bonus) answers at /dream/, the blog at /blog/"
 
     CODE=$(curl -ks -o /dev/null -w '%{http_code}' --max-time 10 "https://$DOMAIN/wp-login.php")
     if [ "$CODE" = "200" ]; then
@@ -600,7 +633,10 @@ R03EOF
         fail "R07 a container of this project publishes port 80" "$R07CONT"
     elif [ "$R07ANSWERS" = "1" ]; then
         OWNER=$(ss -ltnp 2>/dev/null | grep ':80 ' | grep -oE 'users:\(\("[^"]+"' | head -1 | sed 's/.*"\(.*\)"/\1/')
-        warn "R07 something outside this project answers on port 80 ${OWNER:+($OWNER)} — no Inception container publishes it, but an evaluator will see it"
+        # Not this project's listener, but the eval sheet tries http://<login>.42.fr
+        # and fails the defence on any connection, whoever accepts it.
+        fail "R07 port 80 answers on $DOMAIN ${OWNER:+($OWNER)}: the evaluator's http:// test connects" \
+             "no Inception container publishes it; stop the listener (born2root's lighttpd: sudo systemctl disable --now lighttpd)"
     else
         pass "R07 port 80 closed; nginx:443 is the only entrypoint"
     fi
@@ -971,7 +1007,7 @@ else
 
     if has_container staticsite; then
         ok=1
-        SPORT=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/^staticsite/{print}' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | head -1)
+        SPORT=$(host_ports staticsite | head -1)
         : "${SPORT:=8090}"
         [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "http://${DOMAIN}:${SPORT}/")" = "200" ] \
             || { ok=0; fail "B03 static site does not answer on port $SPORT"; }
@@ -985,7 +1021,7 @@ else
     fi
 
     if has_container adminer; then
-        APORT=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/^adminer/{print}' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | head -1)
+        APORT=$(host_ports adminer | head -1)
         if [ -n "$APORT" ] && curl -s --max-time 8 "http://127.0.0.1:${APORT}/" | grep -qi adminer; then
             pass "B04 Adminer answers on port $APORT"
         else
@@ -1048,7 +1084,7 @@ else
 
     i=0
     while [ $i -lt 45 ]; do
-        CODE=$(curl -ks -o /dev/null -w '%{http_code}' --max-time 2 "https://$DOMAIN/" 2>/dev/null || echo 000)
+        CODE=$(curl -ks -o /dev/null -w '%{http_code}' --max-time 2 "https://$DOMAIN/blog/" 2>/dev/null || echo 000)
         [ "$CODE" = "200" ] && break
         sleep 2; i=$((i+1))
     done

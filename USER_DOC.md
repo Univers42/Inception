@@ -28,7 +28,7 @@ in this project look like services and are not (see "What is **not** a service" 
 | **nginx** | `nginx -g "daemon off;"` | **443** (TLS) | The web server, and the only door into the WordPress stack |
 | **wordpress** | `php-fpm84 -F` | — (9000, network-internal) | The PHP processor running the CMS. Never talks to the host directly — nginx forwards to it |
 | **mariadb** | `mariadbd --user=mysql` | — (3306, network-internal) | The database holding all site content (posts, users, settings) |
-| **staticsite** *(bonus)* | `nginx -g "daemon off;"` | **8090** (plain HTTP) | A second, independent web server serving hand-written HTML/CSS/JS — no PHP, no CMS |
+| **staticsite** *(bonus)* | `nginx -g "daemon off;"` | **8090** (plain HTTP), and `/dream/` on 443 through nginx | The landing: a static React site built inside the image — no PHP, no CMS |
 | **redis** *(bonus)* | `redis-server /etc/redis.conf` | — (6379, network-internal) | Object cache for WordPress, so repeated page loads skip database queries |
 | **ftp** *(bonus)* | `pure-ftpd` | **21**, plus **21000–21010** for passive data | File access into the WordPress site files |
 | **adminer** *(bonus)* | `php -S 0.0.0.0:8080` | **8080** (plain HTTP) | A web UI for browsing and editing the database |
@@ -76,7 +76,7 @@ dependency to report *healthy* before starting the dependent:
 - **api** waits for mariadb and redis (and its entrypoint waits again, with a time limit)
 - **mariadb**, **redis**, **staticsite**, **ftp** and **web** wait for nothing — they have no dependencies
 
-See §5c for the static site and §10 for the other bonus services.
+See §5c for the landing, the blog and the wiki, and §10 for the other bonus services.
 
 ---
 
@@ -231,12 +231,19 @@ the `Makefile` — the domain would then be `<your-login>.42.fr` instead):
 
 | Page | URL |
 |---|---|
-| **Website** | `https://dlesieur.42.fr` |
+| **Landing** | `https://dlesieur.42.fr` (see §5c) |
+| **Deeper** | `https://dlesieur.42.fr/deeper/` (see §5c) |
+| **Blog and wiki** (WordPress) | `https://dlesieur.42.fr/blog/`, `https://dlesieur.42.fr/wiki/` |
 | **Admin panel** | `https://dlesieur.42.fr/wp-admin` |
-| **Bonus static site** | `http://dlesieur.42.fr:8090` (see §5c) |
+| **Landing on its bonus port** | `http://dlesieur.42.fr:8090` |
 
-Log in with the admin username from `srcs/.env` (`WP_ADMIN_USER`) and the password
-from `secrets/credentials.txt` (first line).
+Log in with the admin username from `srcs/.env` (`WP_ADMIN_USER`) or its email
+(`WP_ADMIN_EMAIL`), and the password from `secrets/credentials.txt` (first line).
+The landing's *Sign in* leads there too. Deployed with born2root, `make inception`
+writes that email and password from `INCEPTION_ADMIN_EMAIL` and
+`INCEPTION_ADMIN_PASSWORD` in its own secrets file, so a rebuilt machine keeps the
+same account. There is no public sign-up and no reset by email: to change the
+password, change the secret and redeploy.
 
 You'll get a certificate warning (`NET::ERR_CERT_AUTHORITY_INVALID` / "Your connection
 is not private") the first time — this is expected, because the certificate is issued
@@ -327,25 +334,29 @@ Then browse `https://dlesieur.42.fr:8443` from the host.
 > If you just want a quick sanity check that the server is reachable, `curl` works the
 > same way, e.g. from the host: `curl -k https://dlesieur.42.fr:8443` should return HTML.
 
-### 5c. Bonus: the static website (no WordPress, no PHP)
+### 5c. The landing, the blog and the wiki
 
-Separate from everything above, the stack also ships a **bonus service**: a small
-self-contained static website (plain HTML/CSS/vanilla JavaScript, no PHP, no
-framework) running in its own container, on its own port.
-
-This one really is a service and not just a page — unlike the documentation website of
-§1, it has its own `nginx` daemon and its own container. It sits on the `inception`
-network like everything else, but it neither queries MariaDB nor shares the WordPress
-volume, so nothing it serves depends on the CMS being up.
+`https://dlesieur.42.fr/` opens on **WordPress's front page**: the configured
+site, whose text is the *Home* page in wp-admin (edit it there and the change is
+on `/`). The **landing** is a bonus service of its own (a static React site, no
+PHP, its own `nginx` and container) that presents the stack, one link away:
 
 | Page | URL |
 |---|---|
-| **Bonus static site** | `http://dlesieur.42.fr:8090` |
+| **Front page** (WordPress) | `https://dlesieur.42.fr/` |
+| **Landing** | `https://dlesieur.42.fr/dream/` |
+| **Deeper** (the stack as a 3D world you scroll down through) | `https://dlesieur.42.fr/deeper/` |
+| **Blog** | `https://dlesieur.42.fr/blog/` |
+| **Wiki** | `https://dlesieur.42.fr/wiki/` |
+| **Admin** | `https://dlesieur.42.fr/wp-admin/` |
+| **Landing on its bonus port** | `http://dlesieur.42.fr:8090` |
 
-It's plain HTTP (no TLS) since it carries no credentials or sensitive data — just
-static files. If you're viewing from a VM host (§5b), the same port-forwarding /
-`/etc/hosts` steps apply, just forwarding to guest port `8090` instead of `443`
-(and using `http://`, not `https://`).
+The landing works without JavaScript and loads nothing from the internet.
+Deeper needs JavaScript for its world but not for its text; a browser without
+WebGL gets still frames instead, and the *Motion* button (or the system's
+reduced-motion setting) stops the world moving. If
+you're viewing from a VM host (§5b), the same port-forwarding / `/etc/hosts`
+steps apply; for the bonus port, forward guest port `8090` and use `http://`.
 
 ---
 
@@ -448,7 +459,9 @@ the same `make` commands — there is nothing separate to launch.
 | **Lab API** | `https://dlesieur.42.fr/api/v1/` (try `/api/v1/healthz`) | none to read; writes are rate-limited |
 
 **FTP must be used in passive mode.** Most clients (FileZilla, `lftp`, `curl`)
-do this by default. Active mode cannot work through the VM's NAT.
+do this by default. Active mode cannot work through the VM's NAT. Ask for TLS
+when the client can (FileZilla: *Require explicit FTP over TLS*; curl:
+`--ssl-reqd -k`), so the password does not cross the wire in clear.
 
 The passive data ports (`21000–21010`) are published one-to-one on purpose: passive
 mode tells the client which port to open next, so remapping them would advertise a port

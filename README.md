@@ -34,7 +34,7 @@ Key properties:
   enters any container.
 - The repository ships its own **compliance test suite** (`make test`) that maps
   one-to-one to the subject's rules, and **benchmarks** (`make bench`): a fresh clone
-  reaches a live site in ~20s, a rebuilt stack in under 10s.
+  reaches a live site in ~20 s, a rebuilt stack in under 10 s.
 
 ---
 

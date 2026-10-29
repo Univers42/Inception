@@ -91,19 +91,14 @@ through `docker-compose.yml`). `make up` does, in order:
 
 ## 3. Architecture
 
-```text
-            ┌──────────┐
-Client ──►  | NGINX:443│   TLS 1.2/1.3 termination — the ONLY published port
-            │  (nginx) │   serves static files directly from the shared volume (ro)
-            └────┬─────┘
-                 │ FastCGI :9000 (internal)
-            ┌────▼──────────┐
-            │ WordPress     │   php-fpm 8.4 + WP-CLI — no web server inside
-            └────┬──────────┘
-                 │ TCP :3306 (internal)
-            ┌────▼──────────┐
-            │ MariaDB 11.4  │   no web server inside
-            └───────────────┘
+```mermaid
+flowchart TB
+    accTitle: The mandatory stack
+    accDescr: The browser reaches nginx over HTTPS on port 443 with TLS 1.2 or 1.3. nginx terminates TLS and passes PHP requests to WordPress over FastCGI on internal port 9000. WordPress, php-fpm 8.4 with no web server, queries MariaDB 11.4 over TCP on internal port 3306.
+    client([Browser]) -->|"HTTPS :443, TLS 1.2 / 1.3"| nginx
+    nginx["<b>nginx</b><br/>TLS termination, the only published port<br/>static files from the shared volume, read-only"]
+    nginx -->|"FastCGI :9000, internal"| wordpress["<b>WordPress</b><br/>php-fpm 8.4 + WP-CLI<br/>no web server inside"]
+    wordpress -->|"TCP :3306, internal"| mariadb[("<b>MariaDB 11.4</b><br/>no web server inside")]
 ```
 
 - All three containers sit on the **`inception` bridge network**; they resolve each
@@ -116,9 +111,11 @@ Client ──►  | NGINX:443│   TLS 1.2/1.3 termination — the ONLY publishe
 - nginx mounts the WordPress volume **read-only** and serves static assets itself;
   only `.php` requests are forwarded over FastCGI.
 
-A fourth, **independent** container (bonus, §11.1) exists alongside these three: a
-plain HTML/CSS/JS static site on its own port (8090), sharing no network dependency,
-volume or secret with the mandatory trio above.
+A fourth container (bonus, §11.1) serves the landing, a static React site with its
+own nginx on 8090. The edge proxies `https://<login>.42.fr/dream/` to it, never the
+bare domain: the eval sheet opens `https://<login>.42.fr/` expecting the configured
+WordPress site, so `/` is WordPress's front page (`front-page.php`, rendering the
+*Home* page). The landing shares no volume or secret with the mandatory trio above.
 
 ---
 
@@ -192,7 +189,7 @@ Every container starts through an entrypoint script with the same shape:
      template with `sed` that substitutes **only** the three `${...}` placeholders,
      leaving nginx runtime variables (`$uri`, …) untouched.
 3. **Bounded wait loops only** — the WordPress→MariaDB wait probes with
-   `php -r 'mysqli_connect(...)'` (no DB client installed) and gives up after 60s with
+   `php -r 'mysqli_connect(...)'` (no DB client installed) and gives up after 60 s with
    a non-zero exit, letting the restart policy retry. Never `tail -f`, `bash`,
    `sleep infinity`, or `while true` (all prohibited by the subject — and grepped for
    by the test suite).
@@ -201,7 +198,10 @@ Every container starts through an entrypoint script with the same shape:
 
 **Consequence of the guards:** changing secrets or install parameters does **not**
 propagate to an already-initialised stack (the DB and `wp-config.php` keep the values
-from first boot). Re-apply with `make clean && make`.
+from first boot), with three exceptions the WordPress entrypoint re-applies on every
+boot: both WordPress accounts' passwords (`secrets/credentials.txt`, checked with
+`wp user check-password`), the administrator's email (`WP_ADMIN_EMAIL`) and a stale
+`DB_PASSWORD` in `wp-config.php`. Anything else: `make clean && make`.
 
 **Multi-hostname `wp-config.php` (`WP_HOME`/`WP_SITEURL`):** by default WordPress
 hard-redirects (301, `redirect_canonical()`) any request whose `Host` header doesn't
@@ -239,13 +239,22 @@ WordPress itself was redirecting.
 - **Least privilege / least software:** php-fpm workers run as `nobody`;
   `wp-config.php` is `nobody:nobody` mode 640; `clear_env` stays at its safe default
   (env vars are not exposed to PHP); images contain no extra clients or tools
-  (no wget package, no DB client in the WordPress image, >100MB of unused MariaDB
+  (no wget package, no DB client in the WordPress image, >100 MB of unused MariaDB
   binaries removed).
 - **Injection-safe init:** passwords are escaped for their target context (SQL
   single-quotes, PHP single-quotes) before being embedded.
 - **Git hygiene:** `secrets/` and `srcs/.env` are git-ignored; the test suite greps
   tracked files *and the full git history* for credential-looking content — the
   subject makes any credential in the repository an automatic failure.
+- **The sign-in surface:** nginx limits `POST /wp-login.php` to 10 a minute per
+  client address (burst 5, then 429), refuses `/xmlrpc.php` (403), and sends
+  `nosniff`, a referrer policy and `frame-ancestors 'self'` on every page. No HSTS:
+  a browser applies it to the whole host name, and the static site's bonus port
+  8090 is plain HTTP. The kit's `hardening.php` gives every failed sign-in one
+  message, offers no reset by mail (there is no mail server; `secrets/credentials.txt`
+  is the reset), closes the REST users route, `?author=N` and author pages to
+  anonymous visitors, and `posts.php` replaces a display name that is still the
+  login. `wp-config.php` sets `DISALLOW_FILE_EDIT`. `make test-site` S17–S20 check it.
 
 ---
 
@@ -264,12 +273,12 @@ Every optimisation below is measurable with `make bench` / `make bench-full`.
 - **Multi-stage parallelism** — the WordPress Dockerfile fetches the WP tarball and
   WP-CLI in a **side stage** that BuildKit runs *concurrently* with the PHP package
   installation; native `tar` extraction is far faster than WP-CLI's PHP-based unzip.
-- **MariaDB image trimmed** from 318MB to **160MB**: the monolithic Alpine package
+- **MariaDB image trimmed** from 318 MB to **160 MB**: the monolithic Alpine package
   ships an embedded server, a test client, and RocksDB/Aria/MyISAM offline tools that
   the stack never executes (the storage engines themselves live inside `mariadbd`);
   they are deleted in the same layer, which also speeds up image export.
 - **Layer ordering** — packages → downloads → configs, so editing a config file
-  rebuilds in ≤2s; `COPY --chmod` avoids extra chmod layers.
+  rebuilds in ≤2 s; `COPY --chmod` avoids extra chmod layers.
 - **BuildKit everywhere** — parallel service builds (`COMPOSE_BAKE=true`), no
   provenance/SBOM attestation overhead (`BUILDX_NO_DEFAULT_ATTESTATIONS=1`).
 - **BuildKit cache mounts** keep downloaded `.apk` files and the WP tarball across
@@ -288,8 +297,8 @@ Every optimisation below is measurable with `make bench` / `make bench-full`.
 - **`mariadbd --bootstrap` init** — replaces the classic
   start-temp-server → poll → SQL → shutdown dance with one direct SQL application.
 - **Fast readiness detection** — all healthchecks use `--start-interval=500ms`:
-  during startup, readiness is polled twice a second instead of every 3s, removing up
-  to ~3s of dead time *per dependency hop*.
+  during startup, readiness is polled twice a second instead of every 3 s, removing up
+  to ~3 s of dead time *per dependency hop*.
 - **Meaningful healthchecks** — MariaDB is "healthy" only when the *application user*
   can connect over TCP (exactly what WordPress needs); WordPress when php-fpm accepts
   FastCGI connections; nginx when HTTPS answers. `depends_on: service_healthy` chains
@@ -303,13 +312,13 @@ Every optimisation below is measurable with `make bench` / `make bench-full`.
 
 | Metric | Before rework | After |
 |---|---|---|
-| True cold build (`--no-cache --pull`, empty caches) | 25.8s | **~13s** |
-| Package-layer rebuild (warm caches) | — | **~7s** |
-| Config-change rebuild | 3.9s | **≤2s** |
-| Fresh first boot → live site | 14.4s *(blank, broken site)* | **~7s (working site)** |
-| Warm restart → live site | — | **~3.5s** |
-| Full pipeline, virgin machine (`make`) | ~40s (broken site) | **~20s** |
-| Images total | 578MB | **420MB** (mariadb 160, wordpress 244, nginx 16) |
+| True cold build (`--no-cache --pull`, empty caches) | 25.8 s | **~13 s** |
+| Package-layer rebuild (warm caches) | — | **~7 s** |
+| Config-change rebuild | 3.9 s | **≤2 s** |
+| Fresh first boot → live site | 14.4 s *(blank, broken site)* | **~7 s (working site)** |
+| Warm restart → live site | — | **~3.5 s** |
+| Full pipeline, virgin machine (`make`) | ~40 s (broken site) | **~20 s** |
+| Images total | 578 MB | **420 MB** (mariadb 160, wordpress 244, nginx 16) |
 
 Methodology notes: "true cold" is honest — Docker 29 discards cache mounts under
 `--no-cache`, and the bench additionally clears its dedicated cache IDs. Numbers
@@ -399,13 +408,14 @@ builds everything *through* docker-compose.yml — here `make up` also auto-prov
 config, secrets and TLS before calling Compose.
 
 **Why `alpine:3.23`?** The subject demands the *penultimate stable* version of Alpine
-or Debian. At the time of writing, latest stable is 3.24 → penultimate is 3.23.
-Alpine was chosen for size (~5MB base) and build speed. `make test` re-verifies this
+or Debian. At the time of writing, latest stable is 3.24 → penultimate is 3.23,
+pinned to its patch release `alpine:3.23.7` (the eval sheet writes the base as
+`FROM alpine:X.X.X`; the digest is the branch tag's). Alpine was chosen for size (~5 MB base) and build speed. `make test` re-verifies this
 against Docker Hub live, because the target moves with new Alpine releases.
 
 **Why is pulling ready-made images forbidden / what do your Dockerfiles do?** The
 point of the project is writing the service setup yourself. Each Dockerfile starts
-`FROM alpine:3.23`, installs the service from Alpine packages, copies hand-written
+`FROM alpine:3.23.7`, installs the service from Alpine packages, copies hand-written
 configuration, and sets a custom entrypoint script. `make test` proves the running
 images are local builds.
 
@@ -497,7 +507,7 @@ subject-mandated path `/home/login/data`. `docker volume inspect inception_db_da
 shows both the name and the device.
 
 **What happens on a second boot?** Both init guards short-circuit (marker file /
-`wp-config.php` present), so a restart is just "start the daemons" — ~3.5s to a live
+`wp-config.php` present), so a restart is just "start the daemons" — ~3.5 s to a live
 site. Corollary: changing secrets after first boot requires `make clean && make`.
 
 ### Live-proof cheat sheet (run these during the defense)
@@ -520,7 +530,7 @@ make bench                                       # build performance, honest col
 | Change site title / user names | `srcs/.env` → `make clean && make` (install-time values) |
 | Add a WP user | `docker exec wordpress wp --allow-root user create <login> <email> --role=author` |
 | Change upload size | `client_max_body_size` (nginx conf) **and** `conf/uploads.ini` (PHP) → rebuild |
-| Change PHP tuning | `conf/www.conf` / `conf/opcache.ini` → rebuild (≤2s) |
+| Change PHP tuning | `conf/www.conf` / `conf/opcache.ini` → rebuild (≤2 s) |
 | Bump PHP version | four coupled places: wordpress Dockerfile (packages, paths, healthcheck), `www.conf` COPY path, entrypoint `exec php-fpm84`, Makefile `run_wp` |
 | Add a bonus service | new `srcs/requirements/<svc>/` context + service block in compose (own container, own volume if stateful, extra port allowed for bonus) |
 | Add an API route | `bonus/api/app/server.js` routes table + a handler; a new cache key goes in `cache.js` with its own TTL and its invalidation |
@@ -528,44 +538,81 @@ make bench                                       # build performance, honest col
 | Add a wire to the machine room | API: `bonus/api/app/traffic.js` (`WIRES`, plus a recorder or a sampler); web: `lib/wires.ts` (same id, a lane where it overlaps no other wire) → rebuild both |
 | Refresh the site's build-time data | `make snapshot && make re-web` |
 | Bump Astro or mysql2 | `package.json` → `make lock` → rebuild |
+| Change a colour or a font, landing and blog at once | `srcs/design/tokens.css` (and `fonts/`) → `make up`; both images copy it |
+| Change the front page's text (`/`) | wp-admin → Pages → *Home*; `front-page.php` renders it, and nothing on boot writes over an edit |
+| Change the landing's words or numbers | `bonus/staticsite/app/src/content.ts` → `make up` |
+| Change Deeper's words, or a level of its world | `bonus/staticsite/world/src/content.ts`, `world/src/engine/levels/` → `make up` (re-render the posters, §11.1) |
+| Add, drop or bump a WordPress plugin | `wordpress/site/plugins.txt` (`slug version`) → `make up`; `make test-site` checks the pins |
+| Change the wiki | edit the doc section it is cut from (or `tools/wiki/wiki.json` for the tree) → `make wiki` → `make up` |
 
 ---
 
 ## 11. The documentation website (site/)
 
-The WordPress site itself hosts this documentation as a terminal-styled blog —
-custom theme + plugin, fully **baked into the image** so `make re` or a fresh
-clone reproduces it with zero manual steps.
+WordPress serves the **blog** (`/blog/`) and the **wiki** (`/wiki/`) behind the
+landing (§11.1). Theme, plugin, pinned third-party plugins and content are all
+**baked into the image**, so `make re` or a fresh clone reproduces the site with
+zero manual steps. Both sites draw from one set of design tokens,
+`srcs/design/` (colours, type scale, motion, self-hosted OFL fonts), which the
+compose file hands to both builds as the `design` build context.
 
 ```text
 srcs/requirements/wordpress/site/
-├── install.sh                    # entrypoint hook: sync files + run seed.php (idempotent, non-fatal)
-├── seed.php                      # ONE wp eval-file process: activate, permalinks, pages/posts/menu
-├── plugin/inception-kit/         # reusable PHP components: [term_window] [cmd] [out]
-│                                 #   [callout] [stats] [arch] [kbd] [badge] + helpers (icons,
-│                                 #   prompt, reading time) reused by the theme
-├── theme/inception-terminal/     # v2 "the page is one shell session" — figlet hero,
-│                                 #   ls -la docs index, log-stream journal, serif reading
-│                                 #   voice for prose, system fonts only, WCAG AA,
-│                                 #   reduced-motion safe, zero external assets
-└── content/                      # seed content: 5 doc pages + 4 journal posts (HTML + shortcodes)
+├── install.sh            # boot hook: sync theme, kit and plugins, then seed, wiki, posts
+├── plugins.txt           # third-party plugins, "slug version", fetched at build time
+├── seed.php              # once: permalinks, the 4 journal posts, menu
+├── sync.php              # the one keep-in-step rule for seeded pages (an edit in wp-admin wins)
+├── wiki.php              # every boot, idempotent: /blog/, the wiki pages, menu, search index
+├── posts.php             # every boot: the guide series of content/posts/series.json;
+│                         #   fills the Home page (the front page) once from pages/home.html
+├── plugin/inception-kit/ # [term_window] [cmd] [out] [callout] [stats] [arch] [kbd] [badge];
+│                         #   wiki.php (/wiki/ routing, tree, prev/next, 301s), hardening.php
+│                         #   (sign-in), admin.php (the maintainer's dashboard)
+├── theme/inception-terminal/   # one design system with the landing; front-page.php draws /,
+│                               #   single-docs.php and page-wiki.php draw the wiki
+└── content/
+    ├── posts/            # the journal posts; series.json + series/ (the guide series)
+    ├── pages/            # curated summaries, also cut into the wiki
+    └── wiki/             # generated by tools/wiki (make wiki): one HTML file per page + tree.json
 ```
 
-- **Editing:** change anything under `site/`, then `make up` — the container is
-  recreated and `install.sh` re-syncs theme/plugin files (repo is the source of
-  truth). Content pages are seeded **once** (marker option
-  `inception_site_seeded`); to re-seed:
-  `docker exec wordpress wp --allow-root option delete inception_site_seeded && make restart`.
-- **Writing from wp-admin (the normal way):** WordPress *is* the authoring
-  interface — any page/post written in the block editor renders in the shell UI
-  automatically. The kit components are insertable as **block patterns**
-  (inserter → Patterns → *Inception Kit*: command, output, terminal window,
-  callouts, stat tiles, diagram), the editor canvas itself is themed dark
-  terminal (`editor.css`), and the theme palette is exposed as colour swatches.
-  Admin-created pages are added to the nav via *Appearance → Menus*; the seeder
-  never touches content it didn't create.
-- **Boot cost:** the whole provisioning runs in a single PHP process — a fresh
-  first boot including full seeding measures ~7s, same as before the site existed.
+- **Plugins**, each pinned in `plugins.txt` and unpacked into the image by the
+  `wp-src` stage (nothing is downloaded while a container starts):
+  `redis-cache` (the object cache of §11.2), `wedocs` (the wiki's hierarchical
+  `docs` post type), `easy-table-of-contents` (the "On this page" box on posts
+  and wiki pages; its CSS is off and the theme draws it), `relevanssi` (search
+  ranked by relevance across posts and the wiki), `code-block-pro` (highlighted
+  code blocks for posts written in the editor) and `autodescription` (The SEO
+  Framework: meta tags and sitemaps). `make test-site` fails when a running
+  plugin is off its pin.
+- **The wiki is cut from these docs**, not written twice. `tools/wiki/wiki.json`
+  maps each wiki page to a heading of `DEV_DOC.md`, `USER_DOC.md` or `README.md`
+  (or to a curated page); `make wiki` (node in the nodetool image) writes
+  `content/wiki/`, and `make wiki CHECK=1` fails when that copy is stale.
+  `wiki.php` creates a missing page and refreshes one the repository changed,
+  but never one edited in wp-admin since the last sync: it compares the stored
+  content with the hash it recorded, and a person's edit wins.
+- **Routes:** `/blog/` (the seeded `journal` page, renamed; `/journal/` answers
+  301), `/wiki/<area>/<page>/` (weDocs' slug changed from `docs` by the kit),
+  and the five doc pages the wiki replaced answer 301 to their wiki page.
+- **Writing from wp-admin:** WordPress is the authoring interface. The kit
+  components are block patterns (inserter → Patterns → *Inception Kit*), the
+  editor canvas uses the same tokens (`editor.css`), and a wiki page is a
+  *Docs* entry under its parent.
+- **The guide series** ("Building Inception": start here, the machine, nginx,
+  Docker, credentials, maintaining the site) is `content/posts/series.json` plus
+  one HTML file per post, kept in step by `posts.php` with the wiki's rule.
+- **Diagrams are Mermaid**, never ASCII: a ```` ```mermaid ```` fence in these docs
+  (GitHub draws it too), `<pre class="mermaid">` in hand-written content, or the
+  *Diagram (Mermaid)* pattern in the editor. Mermaid 11.17.2 is unpacked into the
+  theme (`assets/vendor/mermaid/`, checked against its SHA-256 at build time) and
+  `theme.js` loads it only on a page that has a diagram, coloured from the tokens;
+  nginx serves its `.mjs` modules as JavaScript, which `mime.types` does not.
+- **The maintainer:** `/wp-admin/` (or *Sign in* on the landing) opens the branded
+  sign-in. The dashboard leads with *Write for Inception* (new post, new wiki page,
+  arrange the wiki) and *The network*, which probes every service by its Compose
+  name from inside the wordpress container. Vendor upsells are off, including the
+  promotion weDocs downloads from its own server.
 - **Failure isolation:** the entrypoint calls `install.sh` non-fatally; a broken
   seed can never prevent php-fpm from starting.
 - **Gotcha:** WordPress runs `wpautop`/`texturize` before shortcodes — the kit
@@ -577,47 +624,91 @@ srcs/requirements/wordpress/site/
 ## 11.1 Bonus: static website (no PHP)
 
 Subject's bonus list, item 3: *"Create a simple static website in the language of
-your choice except PHP."* This is a **separate service from WordPress**, not a page
-rendered by it — WordPress itself is mandatorily PHP (`php-fpm`), so there is no such
-thing as a "PHP-free WordPress page"; the bonus rule targets an independent site.
+your choice except PHP."* Here it is the **landing** of the whole project at
+`https://<login>.42.fr/dream/` (the bare `/` stays WordPress's front page, §13.1),
+in React with framer-motion, server-rendered at build time, and **Deeper** at
+`/deeper/`, the same three levels as a world you
+walk down through (React + three.js). They are separate services from WordPress,
+not pages rendered by it.
 
 ```text
 srcs/requirements/bonus/staticsite/
-├── Dockerfile              # alpine:3.23 + nginx only — same base/conventions as
-│                            #   the mandatory services, no PHP package installed
-├── conf/nginx.conf         # plain HTTP, port 8090, static files only, no fastcgi
-├── tools/entrypoint.sh     # exec nginx as PID 1 — same pattern as every other
-│                            #   entrypoint in this repo (§6)
-└── site/                   # index.html + style.css + script.js — hand-written,
-                             #   zero external requests (no CDN fonts/JS/images),
-                             #   vanilla JS only (typing effect, live clock, a
-                             #   canvas background), prefers-reduced-motion safe
+├── Dockerfile        # build stage: alpine + nodejs/npm, `npm ci` from the lockfile,
+│                     #   `npm run build`; runtime stage: alpine + nginx only
+├── conf/nginx.conf   # 8090: / and /_dream/, /deeper/ and /deeper/_world/ (hashed
+│                     #   assets, cached a year); any other path → 302 over HTTPS
+├── tools/entrypoint.sh
+├── app/              # the landing: Vite + React + Tailwind + framer-motion
+│   ├── src/content.ts    # every fact the page states, sourced from this file
+│   └── prerender.mjs     # bakes the server render into index.html
+└── world/            # Deeper: Vite + React + three.js, its own build stage
+    ├── src/content.ts    # the chapters' words, copied from the landing's facts
+    ├── src/engine/       # the world: levels/, mesher (worker), material, lamps,
+    │                     #   life (traffic, motes, shafts, birds), transition
+    └── src/assets/       # posters, the link card and the film: frames of the world
 ```
 
-- **Container:** `staticsite`, image `staticsite:inception` — same naming
-  discipline as the mandatory services (§3).
-- **Network:** on the `inception` bridge network for consistency, but talks to
-  nothing else on it — no `depends_on`, no secrets, no shared volume. It is
-  reachable at `http://<login>.42.fr:8090` (plain HTTP: it carries no credentials,
-  so TLS wasn't judged necessary — trivial to add the same cert/secrets pattern as
-  nginx if a defense asks for it).
-- **Why nginx again, if the rule excludes PHP?** The excluded language is PHP —
-  the constraint is about how the *site* is authored (plain HTML/CSS/JS, no PHP
-  templating), not about which web server transports the bytes. Reusing nginx
-  keeps the image minimal and consistent with the rest of the project instead of
-  introducing a second, unrelated web-server technology for no benefit.
-- **Port choice:** 8090, picked simply because it's free and outside the
-  well-known-port range; the subject explicitly allows bonus services to open
-  extra ports (§VIII of the subject).
-- **Compliance-suite scoping:** `tests/compliance.sh` S10 originally grepped the
-  *entire* compose file for any `ports:` block, which would have false-failed once
-  a second (legitimate, bonus) `ports:` entry existed. It now checks nginx's own
-  service block specifically (`svc_block nginx`) and separately asserts that
-  `wordpress`/`mariadb` still publish nothing — R02 was already scoped correctly
-  (it filters `docker ps` down to `nginx|wordpress|mariadb`) and needed no change.
-- **Editing the content:** change anything under `site/`, then `make up` — the
-  container rebuilds and re-serves the new files immediately (no seeding, no
-  database, nothing to reset).
+- **Design:** "dream levels". The page scrolls through a pinned stage three
+  screens tall: level 1 is nginx (the door), level 2 WordPress and php-fpm,
+  level 3 MariaDB (limbo). The scroll position picks the level, so nothing
+  hijacks the wheel or the keyboard, and each level is a plain anchor
+  (`#level-1`..`#level-3`). The layout and the motion spec come from the
+  motionsites.ai "Orbit Engineers" and "Synapse" prompts; their CDN videos and
+  fonts are replaced by three canvas scenes and self-hosted fonts, so the page
+  makes **no third-party request** (`make test-site`, S03).
+- **Without JavaScript** the page is complete: the HTML is prerendered and the
+  reveal animations are switched off by a `js` class the page sets itself.
+  Under `prefers-reduced-motion` the scenes freeze on one frame.
+- **Routing:** the edge proxies `/dream/` (to the staticsite's own `/`) and
+  `/_dream/` to `staticsite:8090` (§13.1); the bare `/` is WordPress's. On the
+  bonus port itself, any other path is redirected to HTTPS.
+- **No node at runtime:** node and npm exist only in the build stage; the image
+  that runs is nginx and the built files (`make test-site`, S13). The lockfile
+  is resolved inside the nodetool image (`make lock`), so it carries the musl
+  binaries Vite and Tailwind need on Alpine.
+- **Container:** `staticsite`, image `staticsite:inception`, still published on
+  `8090` as the bonus asks (compliance B03).
+- **Editing:** change anything under `app/` (or the tokens in `srcs/design/`),
+  then `make up`. `npm run dev` in `app/` previews it with live reload.
+
+**Deeper (`/deeper/`).** Scrolling walks a camera down through the stack: the
+avenue of a city that folds up over you (nginx), a hotel corridor that turns
+(WordPress), the shore of limbo with its drowned towers (MariaDB), and the kick.
+The text sits on plates over the world and is all in the prerendered HTML.
+
+- **Engine:** vanilla three.js, loaded after the page is idle. Each level is a
+  voxel grid, greedy-meshed in a Web Worker. One shader lights everything: sky,
+  ground and key per vertex, then per pixel the 12 nearest lamps
+  (`engine/lamps.ts`), Fresnel reflections on glass and brass, and fog that
+  brightens toward the light. Lamps, traffic, motes, the corridor's light
+  shafts and limbo's birds all move in vertex shaders from one time uniform.
+- **Three tiers**, chosen by `engine/probe.ts`:
+  - *GPU:* bloom, a neutral tone map and the crossing pass (an iris and a
+    zoom-blur rush into the corridor, a white flood into limbo). It is always
+    alive while the page is visible: idle at 1440×900 on an Intel Iris Xe it
+    measured 54–57 fps, and 46 in the fold. A governor lowers the resolution
+    when frames are slower than 40 fps.
+  - *Software* (SwiftShader, llvmpipe): no bloom, 4 lamps, CSS veils, and it
+    draws only while the camera moves.
+  - *None:* no WebGL (Chrome without a GPU). Four still frames of the world,
+    drifting slowly.
+- **Posters, link card, film:** frames of the world itself, not stock footage:
+  `src/assets/poster-*.webp` (1600×1000), `og-card.jpg` (1200×630) and
+  `descent.mp4`. The film is the canvas recorded with MediaRecorder while a
+  script scrolls at a fixed pace (26 s), then transcoded to H.264 with an
+  Alpine ffmpeg. It came out at 960×540: during capture the governor stepped
+  the resolution down. Re-render all of them after changing a level. Only the
+  city poster loads on the GPU tier; the `og:` tags are written with paths,
+  and the staticsite nginx makes them absolute with the request's host
+  (`sub_filter`).
+- **Motion:** the *Motion* button and `prefers-reduced-motion` stop the world
+  on one frame per chapter and remove the sway, the flicker and the crossings.
+  There is no scrollbar; a depth gauge on the right replaces it, with one link
+  per chapter.
+- **Editing:** `world/src/engine/levels/` shapes the levels, `world.ts` holds
+  palettes, lights and bloom per scene. `npm run dev` in `world/` previews it
+  (WordPress's posts come through its `/wp-json` proxy). `make test-site` S22
+  checks the route, the prerender and that nothing loads from another host.
 
 ---
 
@@ -665,7 +756,10 @@ broken page rather than a cache miss.
 ### 11.3 FTP
 
 `pure-ftpd`, configured entirely by command-line flags built in the entrypoint
-from `conf/pure-ftpd.conf`.
+from `conf/pure-ftpd.conf`. No anonymous login (`-E`), every user chrooted (`-A`),
+and explicit TLS offered on port 21 (`-Y 1`) with the certificate nginx serves:
+a client that asks for TLS sends the password encrypted, and a plain one still
+logs in.
 
 The interesting part is permissions. WordPress files are owned by `nobody`
 (uid 65534). Rather than `chmod -R g+w` across ~2600 files, the image adds a
@@ -762,12 +856,17 @@ Two more containers, same rules as every other service: own Dockerfile on
 `alpine:3.23`, own healthcheck, a real daemon as PID 1, no published port.
 nginx is the only way in.
 
-```text
-browser ──TLS :443──► nginx ─┬─ /            fastcgi ► wordpress:9000
-                             ├─ /lab/        http    ► web:8080   (static files)
-                             └─ /api/v1/     http    ► api:3000   (JSON)
-                                                          ├─► mariadb:3306  database `lab`, user `labuser`
-                                                          └─► redis:6379    cache, counters, rate limits
+```mermaid
+flowchart LR
+    accTitle: How nginx routes each path
+    accDescr: The browser connects to nginx over TLS on port 443. nginx sends /dream/, /_dream/ and /deeper/ to the landing and Deeper on staticsite:8090, /lab/ to web:8080, /api/v1/ to api:3000, and everything else to WordPress on port 9000 over FastCGI. The lab API uses the lab database on mariadb:3306, and redis:6379 for cache, counters and rate limits.
+    browser([Browser]) -->|"TLS :443"| nginx
+    nginx -->|"/dream/, /_dream/ and /deeper/, http"| staticsite["staticsite:8090<br/>the landing and Deeper"]
+    nginx -->|"everything else, FastCGI"| wordpress["wordpress:9000<br/>blog, wiki, wp-admin"]
+    nginx -->|"/lab/, http"| web["web:8080<br/>static files"]
+    nginx -->|"/api/v1/, http"| api["api:3000<br/>JSON"]
+    api -->|"database lab, user labuser"| mariadb[("mariadb:3306")]
+    api -->|"cache, counters, rate limits"| redis[("redis:6379")]
 ```
 
 - **`web`** (`srcs/requirements/bonus/web/`). An Astro 5 site rendered to HTML
@@ -784,7 +883,16 @@ browser ──TLS :443──► nginx ─┬─ /            fastcgi ► wordpre
 
 ### 13.1 Edge routing
 
-`srcs/requirements/nginx/conf/nginx.conf` gains two `^~` prefix locations. `^~`
+The domain is shared by three sites, routed by path at the edge:
+
+| Path | Served by |
+|---|---|
+| `/dream/` (and `/dream` → 301), `/_dream/` | the landing, `staticsite:8090` (§11.1) |
+| `/deeper/` (and `/deeper` → 301) | Deeper, the same container (§11.1) |
+| `/lab/`, `/api/v1/` | the lab, `web:8080` and `api:3000` (below) |
+| everything else, the bare `/` included | WordPress over FastCGI: the front page, `/blog/`, `/wiki/`, `/wp-admin/` |
+
+For the lab, `srcs/requirements/nginx/conf/nginx.conf` gains two `^~` prefix locations. `^~`
 matters: it stops the regex locations from matching, so
 `/lab/_astro/x.js` is proxied instead of being looked for under
 `/var/www/html`. `absolute_redirect off` keeps nginx's own redirects
