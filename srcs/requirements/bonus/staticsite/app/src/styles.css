@@ -1,0 +1,280 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind names mapped onto srcs/design/tokens.css (imported from main.tsx).
+ * The names differ from the tokens on purpose: `--font-sans: var(--font-sans)`
+ * would be a cycle once Tailwind emits its theme variables.
+ */
+@theme inline {
+    --color-ink: var(--bg);
+    --color-surface: var(--surface);
+    --color-raised: var(--surface-raised);
+    --color-sunken: var(--surface-sunken);
+    --color-text: var(--text);
+    --color-muted: var(--text-muted);
+    --color-faint: var(--text-faint);
+    --color-link: var(--link);
+    --color-accent: var(--accent);
+    --color-on-accent: var(--on-accent);
+    --color-line: var(--line);
+    --color-line-strong: var(--line-strong);
+    --color-glass: var(--glass);
+    --color-glass-line: var(--glass-line);
+    --color-level-1: var(--level-1);
+    --color-level-2: var(--level-2);
+    --color-level-3: var(--level-3);
+    --font-dream: var(--font-display);
+    --font-ui: var(--font-sans);
+    --font-code: var(--font-mono);
+    --ease-dream: var(--ease-dream);
+}
+
+@layer base {
+    html {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+    }
+
+    body {
+        min-height: 100dvh;
+        overflow-x: clip;
+    }
+
+    ::selection {
+        background: color-mix(in srgb, var(--accent) 35%, transparent);
+        color: var(--text);
+    }
+
+    h1,
+    h2,
+    h3 {
+        text-wrap: balance;
+    }
+
+    :focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+        border-radius: 6px;
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    html {
+        scroll-behavior: smooth;
+    }
+}
+
+@layer components {
+    .glass {
+        background: var(--glass);
+        border: 1px solid var(--glass-line);
+        backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    }
+
+    /* Synapse-style gradient headline, tinted by the current dream level */
+    .dream-gradient {
+        background: linear-gradient(100deg, var(--text) 10%, var(--tint, var(--level-1)) 55%, var(--text) 95%);
+        background-size: 200% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-height: 44px;
+        padding: 0.7rem 1.25rem;
+        border-radius: var(--radius-pill);
+        font-weight: 550;
+        font-size: var(--step--1);
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition:
+            transform var(--dur-fast) var(--ease-out),
+            background-color var(--dur) var(--ease-out),
+            border-color var(--dur) var(--ease-out),
+            color var(--dur) var(--ease-out);
+    }
+
+    .btn:active {
+        transform: scale(0.97);
+    }
+
+    .btn-primary {
+        background: var(--accent);
+        color: var(--on-accent);
+    }
+
+    .btn-primary:hover {
+        background: #f6c77f;
+    }
+
+    .btn-ghost {
+        border: 1px solid var(--line-strong);
+        color: var(--text);
+    }
+
+    .btn-ghost:hover {
+        border-color: var(--text-muted);
+        background: rgb(255 255 255 / 0.04);
+    }
+
+    .eyebrow {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+
+    .chip {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        padding: 0.35rem 0.7rem;
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--line-strong);
+        color: var(--text);
+        background: rgb(255 255 255 / 0.03);
+        white-space: nowrap;
+    }
+
+    .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .skip-link {
+        position: fixed;
+        left: 1rem;
+        top: -4rem;
+        z-index: var(--z-overlay);
+        padding: 0.6rem 1rem;
+        border-radius: var(--radius-s);
+        background: var(--accent);
+        color: var(--on-accent);
+        font-weight: 600;
+    }
+
+    .skip-link:focus {
+        top: 1rem;
+    }
+}
+
+/*
+ * Without JavaScript nothing ever reveals: framer-motion server-renders its
+ * `initial` styles inline (opacity 0), and only the client animates them away.
+ * The `js` class is set by a one-line script in index.html, so this override
+ * only applies when that script never ran.
+ */
+html:not(.js) [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+}
+
+/*
+ * The dream cubes (components/DreamCubes.tsx). Each face carries a grid, the
+ * folding city's windows, in its level's tint. Below 1100 px they sit behind
+ * the text, smaller and dimmer, so the copy keeps its contrast; from 1100 px
+ * they own the gap between the title and the level rail, which at 1440 px is
+ * ~360 px against the outer cube's ~400, hence 85% until 1680 px.
+ */
+.dream-cubes {
+    position: absolute;
+    top: 10%;
+    right: -18%;
+    width: 78vw;
+    aspect-ratio: 1;
+    perspective: 1100px;
+    opacity: 0.45;
+    pointer-events: none;
+    transform: scale(0.62);
+}
+
+@media (min-width: 1100px) {
+    .dream-cubes {
+        top: 50%;
+        /* clear of the level rail on the right (labels up to ~9rem wide) */
+        right: calc(3% + 8.5rem);
+        width: min(36vw, 480px);
+        opacity: 1;
+        transform: translateY(-50%) scale(0.85);
+    }
+}
+
+@media (min-width: 1680px) {
+    .dream-cubes { transform: translateY(-50%); }
+}
+
+.dream-cubes::before {
+    content: '';
+    position: absolute;
+    inset: 18%;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--tint, var(--level-1)) 26%, transparent), transparent 70%);
+    filter: blur(28px);
+}
+
+.cube-slot {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    transform-style: preserve-3d;
+}
+
+.cube {
+    position: relative;
+    width: var(--size);
+    height: var(--size);
+    transform-style: preserve-3d;
+    transform: rotateX(-22deg) rotateY(38deg);
+    animation: cube-turn 40s linear infinite;
+}
+
+.cube-reverse { animation-direction: reverse; }
+
+.cube-face {
+    position: absolute;
+    inset: 0;
+    border: 1px solid color-mix(in srgb, var(--tint) 72%, transparent);
+    background:
+        linear-gradient(color-mix(in srgb, var(--tint) 20%, transparent) 1px, transparent 1px) 0 0 / 25% 25%,
+        linear-gradient(90deg, color-mix(in srgb, var(--tint) 20%, transparent) 1px, transparent 1px) 0 0 / 25% 25%,
+        color-mix(in srgb, var(--tint) 6%, transparent);
+    box-shadow: inset 0 0 calc(var(--size) / 6) color-mix(in srgb, var(--tint) 22%, transparent);
+}
+
+.cube-front { transform: translateZ(calc(var(--size) / 2)); }
+.cube-back { transform: rotateY(180deg) translateZ(calc(var(--size) / 2)); }
+.cube-right { transform: rotateY(90deg) translateZ(calc(var(--size) / 2)); }
+.cube-left { transform: rotateY(-90deg) translateZ(calc(var(--size) / 2)); }
+.cube-top { transform: rotateX(90deg) translateZ(calc(var(--size) / 2)); }
+.cube-bottom { transform: rotateX(-90deg) translateZ(calc(var(--size) / 2)); }
+
+@keyframes cube-turn {
+    from { transform: rotateX(-22deg) rotateY(38deg); }
+    to { transform: rotateX(-22deg) rotateY(398deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cube { animation: none; }
+}

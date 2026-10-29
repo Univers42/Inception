@@ -41,3 +41,5 @@ srcs/.env.local
 # the pusher alone); never shared, never committed.
 .env.local
 srcs/.env.local
+srcs/requirements/bonus/staticsite/app/dist/
+srcs/requirements/bonus/staticsite/app/dist-ssr/

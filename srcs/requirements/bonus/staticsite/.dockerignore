@@ -1,3 +1,9 @@
 .git
 *.md
 .dockerignore
+app/node_modules
+app/dist
+app/dist-ssr
+world/node_modules
+world/dist
+world/dist-ssr

@@ -1,0 +1,299 @@
+/*
+ * Deeper: the descent through the stack. Colours and type come from
+ * srcs/design/tokens.css (imported from main.tsx), shared with the landing,
+ * the blog and the wiki. Dark only: the world is a night dream in both
+ * schemes, so the page pins data-scheme="dark".
+ */
+
+/* ── base ────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* No scrollbar, but native scrolling everywhere: keyboard, wheel, touch and
+   find-in-page all still work. The depth gauge is the position cue MDN asks
+   for when a page hides its bar. */
+html {
+    scrollbar-width: none;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: var(--leading-body, 1.6);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+html::-webkit-scrollbar { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+    html[data-motion="on"] { scroll-behavior: smooth; }
+}
+body { margin: 0; overflow-x: clip; }
+a { color: var(--link); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 6px; }
+::selection { background: rgb(240 180 90 / 0.35); color: var(--text); }
+
+.skip {
+    position: fixed; left: 1rem; top: -4rem; z-index: 50;
+    padding: 0.6rem 1rem; border-radius: var(--radius-s);
+    background: var(--accent); color: var(--on-accent); font-weight: 600; text-decoration: none;
+}
+.skip:focus { top: 1rem; }
+
+/* ── the stage: the world, its posters and veils ─────────────────────── */
+.stage { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--bg); }
+.world {
+    position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+    opacity: 0; transition: opacity 1.4s var(--ease-dream);
+}
+html[data-world="ready"] .world { opacity: 1; }
+html[data-world="none"] .world { display: none; }
+
+/* Still posters: frames of this world itself (GPU tier, 1600×1000, text
+   hidden, at x = 0, 1.75, 2.4 and 3.5; re-render them after changing a
+   level). The first paint shows the surface before WebGL is up, and the world
+   fades in over the same picture. Only that one loads everywhere: the other
+   three are fetched only when there is no world to show. */
+.poster { position: absolute; inset: 0; transition: opacity 1.2s var(--ease-dream); }
+.poster span { position: absolute; inset: -4%; opacity: 0; background-position: center; background-size: cover; background-repeat: no-repeat; transition: opacity 1s var(--ease-dream); }
+.poster-city { background-color: #101a29; background-image: url('./assets/poster-city.webp'); }
+.poster-fold { background-color: #101a29; }
+.poster-hall { background-color: #13262a; }
+.poster-limbo { background-color: #d9d4c6; }
+html[data-world="none"] .poster-fold { background-image: url('./assets/poster-fold.webp'); }
+html[data-world="none"] .poster-hall { background-image: url('./assets/poster-hall.webp'); }
+html[data-world="none"] .poster-limbo { background-image: url('./assets/poster-limbo.webp'); }
+html:not([data-chapter]) .poster-city,
+html[data-chapter="0"] .poster-city,
+html[data-chapter="1"]:not([data-world="none"]) .poster-city,
+html[data-world="none"][data-chapter="1"] .poster-fold,
+html[data-chapter="2"] .poster-hall,
+html[data-chapter="3"] .poster-limbo,
+html[data-chapter="4"] .poster-limbo { opacity: 1; }
+/* Without WebGL the still drifts, slowly, so the page is not a slideshow. */
+@media (prefers-reduced-motion: no-preference) {
+    html[data-world="none"]:not([data-motion="off"]) .poster span { animation: poster-drift 36s var(--ease-dream) infinite alternate; }
+}
+@keyframes poster-drift { from { transform: scale(1) } to { transform: scale(1.07) translate(-1.2%, 0.8%) } }
+html[data-world="ready"] .poster { opacity: 0; }
+
+.veil { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+.veil-dark { background: #020305; }
+.veil-bright { background: #f4efe4; }
+.vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgb(2 3 5 / 0.55) 100%);
+}
+
+/* ── navigation ──────────────────────────────────────────────────────── */
+.nav {
+    position: fixed; inset: 0 0 auto; z-index: 30;
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: max(0.85rem, env(safe-area-inset-top)) clamp(0.9rem, 3vw, 2rem) 0.85rem;
+    background: linear-gradient(180deg, rgb(2 3 5 / 0.55), transparent);
+}
+.brand { display: inline-flex; align-items: center; gap: 0.6rem; min-height: 44px; color: var(--text); text-decoration: none; font-weight: 550; letter-spacing: -0.01em; }
+.brand-sub { color: var(--accent); font-weight: 450; }
+.totem { animation: totem-turn 14s linear infinite; transform-origin: 50% 60%; }
+@keyframes totem-turn { to { transform: rotate(360deg); } }
+.nav nav { margin-left: auto; }
+/* The links sit on one glass pill: limbo's sky is near white, and bare
+   muted text over it vanished in the x=3.3 screenshot. */
+.nav-links {
+    display: flex; gap: 0.1rem; margin: 0; padding: 0 0.25rem; list-style: none;
+    border-radius: var(--radius-pill); border: 1px solid var(--glass-line); background: var(--glass);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.nav-links a {
+    display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.85rem; border-radius: var(--radius-pill);
+    color: var(--text-muted); text-decoration: none; font-size: 0.92rem; transition: color var(--dur) var(--ease-out), background-color var(--dur);
+}
+.nav-links a:hover { color: var(--text); background: rgb(233 238 245 / 0.07); }
+.motion, .signin {
+    display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; padding: 0 1rem;
+    border-radius: var(--radius-pill); border: 1px solid var(--glass-line); background: var(--glass);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    color: var(--text); font: 500 0.88rem/1 var(--font-sans); text-decoration: none; cursor: pointer;
+}
+.signin { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
+.signin:hover { background: color-mix(in srgb, var(--accent) 85%, white); }
+.motion-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success, #6fd3a0); box-shadow: 0 0 0 3px rgb(111 211 160 / 0.2); }
+.motion[aria-pressed="true"] .motion-dot { background: var(--text-faint); box-shadow: none; }
+@media (max-width: 52rem) {
+    .nav nav { display: none; }
+    .motion { margin-left: auto; }
+}
+@media (max-width: 30rem) {
+    .brand-sub { display: none; }
+    .motion { padding: 0 0.8rem; font-size: 0.8rem; }
+    .signin { padding: 0 0.8rem; font-size: 0.8rem; }
+}
+
+/* ── the depth gauge (the scrollbar's replacement) ───────────────────── */
+.gauge { position: fixed; right: clamp(0.6rem, 2vw, 1.75rem); top: 50%; transform: translateY(-50%); z-index: 25; }
+.gauge ol { position: relative; display: grid; gap: clamp(1rem, 4vh, 2rem); margin: 0; padding: 0; list-style: none; }
+.gauge ol::before, .gauge ol::after {
+    content: ""; position: absolute; right: 21px; top: 12px; width: 1px; transform: translateX(50%);
+}
+.gauge ol::before { bottom: 12px; background: var(--line-strong); }
+.gauge ol::after { height: calc((100% - 24px) * var(--depth, 0)); background: linear-gradient(var(--level-1), var(--level-2), var(--level-3), var(--accent)); }
+.gauge a {
+    position: relative; z-index: 1; display: flex; flex-direction: row-reverse; align-items: center; gap: 0.7rem;
+    min-height: 44px; padding: 0 0 0 0.5rem; color: var(--text-faint); text-decoration: none;
+    font: 500 0.7rem/1 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase;
+}
+.gauge-mark {
+    flex: none; width: 11px; height: 11px; margin-right: 16px; border-radius: 50%;
+    border: 1px solid currentcolor; background: var(--bg); transition: background-color var(--dur), box-shadow var(--dur);
+}
+.gauge-label {
+    padding: 0.35rem 0.5rem; border-radius: var(--radius-sm, 6px); background: rgb(8 11 16 / 0.72);
+    opacity: 0; transform: translateX(6px); transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.gauge a:hover .gauge-label, .gauge a:focus-visible .gauge-label, .gauge .is-here .gauge-label { opacity: 1; transform: none; }
+.gauge .is-here a { color: var(--text); }
+.gauge .is-here .gauge-mark { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 5px rgb(240 180 90 / 0.18); }
+.gauge li[data-depth="1"] a:hover, .gauge li[data-depth="1"].is-here a { color: var(--level-1); }
+.gauge li[data-depth="2"] a:hover, .gauge li[data-depth="2"].is-here a { color: var(--level-2); }
+.gauge li[data-depth="3"] a:hover, .gauge li[data-depth="3"].is-here a { color: var(--level-3); }
+/* Hidden by clipping, not display:none: the label is the link's only name. */
+@media (max-width: 40rem) {
+    .gauge-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .gauge ol { gap: 0.6rem; }
+}
+
+/* ── chapters and their plates ───────────────────────────────────────── */
+main { position: relative; z-index: 10; }
+.chapter { position: relative; height: 280vh; }
+.chapter-surface { height: 200vh; }
+.chapter-wake { height: 190vh; }
+/* --pin-top is 0, or negative for a plate taller than the screen (the last
+   one on a phone): it then scrolls until its bottom edge shows, and pins
+   there. Chapters.tsx measures it; top: 0 cut that plate's title off. */
+.pin {
+    position: sticky; top: var(--pin-top, 0px); min-height: 100vh; min-height: 100dvh;
+    display: flex; align-items: center;
+    padding: 6.5rem clamp(1.25rem, 7vw, 7rem) 3rem clamp(1.25rem, 6vw, 6rem);
+}
+.chapter-dream .pin { justify-content: flex-end; padding-right: clamp(4.5rem, 10vw, 10rem); }
+.chapter-wake .pin { justify-content: center; }
+
+/* A plate arrives as its chapter starts and leaves before the kick: the
+   fraction --t comes from scroll.ts, one write per frame. */
+.plate {
+    --in: clamp(0, (var(--t, 0) - 0.04) * 8, 1);
+    --out: clamp(0, (0.93 - var(--t, 0)) * 9, 1);
+    position: relative; width: min(100%, 35rem);
+    padding: clamp(1.25rem, 3vw, 2.1rem);
+    border: 1px solid var(--glass-line); border-radius: var(--radius-l);
+    background: rgb(6 8 12 / 0.66);
+    -webkit-backdrop-filter: blur(16px) saturate(130%); backdrop-filter: blur(16px) saturate(130%);
+    box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.8);
+    opacity: min(var(--in), var(--out));
+    transform: translateY(calc((1 - var(--in)) * 28px)) scale(calc(0.97 + 0.03 * var(--out)));
+    will-change: opacity, transform;
+}
+.plate[data-depth="1"] { --tint: var(--level-1); }
+.plate[data-depth="2"] { --tint: var(--level-2); }
+.plate[data-depth="3"] { --tint: var(--level-3); }
+.plate-surface, .plate-wake { --tint: var(--accent); }
+
+/* The first screen: the headline straight on the city, on a scrim. */
+.plate-surface {
+    --in: 1;
+    width: min(100%, 52rem); padding: 0; border: 0; background: none; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    align-self: flex-end; margin-bottom: 6vh;
+    text-shadow: 0 2px 30px rgb(0 0 0 / 0.65);
+}
+.chapter-surface .pin::before {
+    content: ""; position: absolute; inset: auto 0 0 0; height: 75%; pointer-events: none;
+    background: linear-gradient(0deg, rgb(2 3 5 / 0.82), rgb(2 3 5 / 0.35) 55%, transparent);
+}
+.plate-wake { width: min(100%, 50rem); text-align: center; }
+
+.eyebrow {
+    margin: 0 0 var(--space-4); font: 500 0.75rem/1.2 var(--font-mono);
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--tint, var(--text-muted));
+}
+.title {
+    margin: 0; font-family: var(--font-display); font-weight: 400;
+    font-size: var(--step-5); line-height: 1.02; letter-spacing: -0.015em; text-wrap: balance;
+}
+.title em { display: block; font-style: italic; color: var(--tint, var(--accent)); }
+.plate-surface .title { font-size: clamp(3.4rem, 1.2rem + 8vw, 9.5rem); line-height: 0.92; }
+.plate-surface .title em { font-size: 0.42em; line-height: 1.1; margin-top: 0.35em; color: var(--text); }
+.body { margin: var(--space-5) 0 0; max-width: 34rem; font-size: var(--step-0); line-height: 1.65; color: color-mix(in srgb, var(--text) 86%, var(--text-muted)); }
+.plate-surface .body { font-size: var(--step-1); line-height: 1.5; color: var(--text); }
+.plate-wake .body { margin-inline: auto; }
+
+.facts { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: var(--space-5) 0 0; padding: 0; list-style: none; }
+.facts li {
+    padding: 0.4rem 0.75rem; border: 1px solid color-mix(in srgb, var(--tint, var(--text)) 45%, transparent); border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--tint, var(--text)) 8%, transparent);
+    font: 450 0.8rem/1.2 var(--font-mono); color: var(--text);
+}
+
+.cue { display: inline-flex; align-items: center; gap: 0.8rem; margin: var(--space-7) 0 0; font: 500 0.75rem/1 var(--font-mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-muted); }
+.cue-line { position: relative; width: 1px; height: 2.6rem; overflow: hidden; background: rgb(233 238 245 / 0.18); }
+.cue-line::after { content: ""; position: absolute; inset: 0; background: var(--accent); animation: cue 2.2s var(--ease-dream) infinite; }
+@keyframes cue { from { transform: translateY(-100%); } to { transform: translateY(100%); } }
+
+/* ── the corridor's doors: the latest posts ──────────────────────────── */
+/* Two doors a row on a wide screen: four in a column made the plate taller
+   than a 900 px window. */
+.plate-dream { width: min(100%, 46rem); }
+.doors { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); gap: 0.5rem; margin: var(--space-5) 0 0; padding: 0; list-style: none; }
+.doors a {
+    display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.9rem; align-items: baseline;
+    padding: 0.75rem 0.9rem; border: 1px solid var(--line); border-radius: var(--radius-m);
+    background: rgb(233 238 245 / 0.03); color: var(--text); text-decoration: none;
+    transition: border-color var(--dur) var(--ease-out), background-color var(--dur), transform var(--dur) var(--ease-out);
+}
+.doors a:hover { border-color: var(--level-2); background: rgb(92 194 180 / 0.08); transform: translateX(4px); }
+.door-number { grid-row: span 2; font: 500 0.8rem/1 var(--font-mono); color: var(--accent); padding: 0.35rem 0.5rem; border: 1px solid rgb(240 180 90 / 0.4); border-radius: 6px; }
+.door-title { font-weight: 550; line-height: 1.35; }
+.doors time { font: 400 0.75rem/1 var(--font-mono); color: var(--text-muted); }
+
+/* ── the kick: exits and numbers ─────────────────────────────────────── */
+.exits { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: 0.6rem; margin: var(--space-6) 0 0; padding: 0; list-style: none; text-align: left; }
+.exits a {
+    display: flex; flex-direction: column; gap: 0.3rem; height: 100%; padding: 1rem 1.1rem;
+    border: 1px solid var(--line-strong); border-radius: var(--radius-m); background: rgb(233 238 245 / 0.04);
+    color: var(--text); text-decoration: none; transition: border-color var(--dur), background-color var(--dur), transform var(--dur) var(--ease-out);
+}
+.exits a:hover { border-color: var(--accent); background: rgb(240 180 90 / 0.08); transform: translateY(-2px); }
+.exits li:first-child a { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.exits li:first-child .exit-note { color: color-mix(in srgb, var(--on-accent) 75%, transparent); }
+.exit-label { font-weight: 600; }
+.exit-note { font-size: 0.82rem; color: var(--text-muted); }
+.numbers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: var(--space-6) 0 0; border-top: 1px solid var(--line); }
+.numbers div { display: flex; flex-direction: column-reverse; gap: 0.25rem; padding: 1rem 0.5rem 0; }
+.numbers dt { font-size: 0.78rem; color: var(--text-muted); }
+.numbers dd { margin: 0; font-family: var(--font-display); font-size: var(--step-3); line-height: 1; font-variant-numeric: tabular-nums; }
+@media (max-width: 40rem) { .numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.again { margin: var(--space-6) 0 0; font: 500 0.8rem/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; }
+.again a { color: var(--text-muted); text-decoration: none; }
+.again a:hover { color: var(--accent); }
+
+/* ── footer ──────────────────────────────────────────────────────────── */
+.foot {
+    position: relative; z-index: 10; padding: 2rem clamp(1.25rem, 6vw, 6rem) max(2rem, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line); background: var(--bg); color: var(--text-muted); font-size: 0.88rem;
+}
+.foot p { margin: 0.3rem 0; }
+.foot a { color: var(--text-muted); }
+.foot a:hover { color: var(--text); }
+
+/* ── phones: plates sit low, over a scrim ────────────────────────────── */
+@media (max-width: 40rem) {
+    .pin { align-items: flex-end; padding: 5rem 3.4rem 1.5rem 1rem; }
+    .chapter-dream .pin { padding-right: 3.4rem; }
+    .plate { width: 100%; }
+    .chapter-surface .pin::before { height: 100%; background: linear-gradient(0deg, rgb(2 3 5 / 0.88), rgb(2 3 5 / 0.55) 60%, rgb(2 3 5 / 0.2)); }
+}
+
+/* ── without script, or with motion off: everything simply shows ─────── */
+html:not(.js) .chapter { height: auto; }
+html:not(.js) .pin { position: relative; }
+html:not(.js) .plate, html[data-motion="off"] .plate { opacity: 1; transform: none; }
+html[data-motion="off"] .totem, html[data-motion="off"] .cue-line::after { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+    .totem, .cue-line::after { animation: none; }
+}
