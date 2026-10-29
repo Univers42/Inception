@@ -64,7 +64,7 @@ HELLISH_URL      = https://github.com/Univers42/hellish/releases/download/$(HELL
 
 # Throwaway image used only to wipe $(DATA_DIR) without sudo (same pin as every
 # Dockerfile: it is the base OS, the one image the subject allows to be pulled).
-BASE_IMAGE = alpine:3.23
+BASE_IMAGE = alpine:3.23.7
 
 SECRETS  = secrets
 CA_KEY   = $(SECRETS)/ca.key
@@ -242,25 +242,33 @@ re-web:
 test-lab:
 	@HTTPS_PORT=$(HTTPS_PORT) $(SCRIPT_SH) tests/lab.sh $(LAB_ARGS)
 
+test-site:
+	@HTTPS_PORT=$(HTTPS_PORT) $(SCRIPT_SH) tests/site.sh
+
 # ── nodetool: the only node/npm this project ever runs ───────────────────────
 # No Node toolchain on the host. Lockfiles are resolved, and any npm command is
 # run, inside an image built from srcs/requirements/bonus/nodetool — the same
 # alpine:3.23 + apk nodejs/npm the web and api build stages use. Like 42ctl it
 # is a CLI image, not a compose service (a CLI cannot be an honest PID-1 daemon).
-#   make lock                                   # (re)resolve both lockfiles
+#   make lock                                   # (re)resolve every lockfile
 #   make npm-web NPM="install --package-lock-only"
 #   make npm-api NPM="outdated"
+#   make npm-site NPM="outdated"                # the landing (bonus staticsite)
+#   make npm-world NPM="outdated"               # Deeper, at /deeper/ (same image)
 NODE_DIR   = srcs/requirements/bonus/nodetool
 NODE_IMAGE = nodetool:inception
 WEB_APP    = srcs/requirements/bonus/web/app
 API_APP    = srcs/requirements/bonus/api/app
+SITE_APP   = srcs/requirements/bonus/staticsite/app
+WORLD_APP  = srcs/requirements/bonus/staticsite/world
+WIKI_APP   = tools/wiki
 LOCK_ARGS  = install --package-lock-only --ignore-scripts --no-audit --no-fund
 
 # Rootless daemon: container root IS the developer, so run as root. Rootful:
 # run as the developer's uid so the files npm writes are not root-owned.
 # $(1) = app directory (bind-mounted at /app), $(2) = npm arguments.
-NODE_RUN = u=0; docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q 'name=rootless' || u="$$(id -u):$$(id -g)"; \
-	docker run --rm -u "$$u" -v "$$PWD/$(1)":/app $(NODE_IMAGE) $(2)
+NODE_USER = u=0; docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q 'name=rootless' || u="$$(id -u):$$(id -g)"
+NODE_RUN  = $(NODE_USER); docker run --rm -u "$$u" -v "$$PWD/$(1)":/app $(NODE_IMAGE) $(2)
 
 nodetool:
 	@echo "[nodetool] building $(NODE_IMAGE) ..."; \
@@ -275,11 +283,28 @@ npm-web: nodetool-present
 npm-api: nodetool-present
 	@$(call NODE_RUN,$(API_APP),$(NPM))
 
+npm-site: nodetool-present
+	@$(call NODE_RUN,$(SITE_APP),$(NPM))
+
+npm-world: nodetool-present
+	@$(call NODE_RUN,$(WORLD_APP),$(NPM))
+
 lock: nodetool-present
-	@for d in $(WEB_APP) $(API_APP); do \
+	@for d in $(WEB_APP) $(API_APP) $(SITE_APP) $(WORLD_APP) $(WIKI_APP); do \
 		echo "[lock] $$d/package-lock.json"; \
 		$(call NODE_RUN,$$d,$(LOCK_ARGS)) || exit 1; \
 	done
+
+# ── wiki: the WordPress wiki, cut out of the docs (tools/wiki) ──────────────
+# The whole repository is mounted: tools/wiki reads DEV_DOC.md, USER_DOC.md
+# and README.md and writes srcs/requirements/wordpress/site/content/wiki/.
+#   make wiki            regenerate (after editing a doc or tools/wiki/wiki.json)
+#   make wiki CHECK=1    fail when the committed pages are stale
+WIKI_RUN = $(NODE_USER); docker run --rm -u "$$u" -v "$$PWD":/repo -w /repo/$(WIKI_APP) $(NODE_IMAGE)
+
+wiki: nodetool-present
+	@$(WIKI_RUN) ci --no-audit --no-fund --ignore-scripts --silent || exit 1; \
+	$(WIKI_RUN) run --silent $(if $(CHECK),check,build)
 
 # ── 42ctl: the vault42 remote controller ─────────────────────────────────────
 # Built from source (never pulled) into a local image, then invoked one shot at a
@@ -416,15 +441,23 @@ WP      = docker exec wordpress wp --allow-root --path=/var/www/html
 SITE    = https://$(LOGIN).42.fr
 ADMIN   = $(SITE)/wp-admin
 
+# Every wait below is bounded (READY_TRIES × 2 s): the subject forbids a script
+# that can loop forever, and a service that never comes up must fail the target
+# with its name, not hang the terminal.
+READY_TRIES ?= 60
+
 run_wp: up
 	@printf '%b\n' "\n\033[1;33m⏳ Waiting for containers to be ready…\033[0m"
-	@until docker exec mariadb mariadb-admin ping -h localhost --silent 2>/dev/null; do \
+	@i=0; until docker exec mariadb mariadb-admin ping -h localhost --silent 2>/dev/null; do \
+		i=$$((i + 1)); [ $$i -lt $(READY_TRIES) ] || { echo " MariaDB not ready after $(READY_TRIES) tries" >&2; exit 1; }; \
 		printf "."; sleep 2; \
 	done && echo " MariaDB ✔"
-	@until docker exec wordpress php-fpm84 -t 2>/dev/null; do \
+	@i=0; until docker exec wordpress php-fpm84 -t 2>/dev/null; do \
+		i=$$((i + 1)); [ $$i -lt $(READY_TRIES) ] || { echo " php-fpm not ready after $(READY_TRIES) tries" >&2; exit 1; }; \
 		printf "."; sleep 2; \
-	done 2>/dev/null && echo " php-fpm ✔"
-	@until curl -ks --max-time 2 "$(SITE)" >/dev/null 2>&1; do \
+	done && echo " php-fpm ✔"
+	@i=0; until curl -ks --max-time 2 "$(SITE)" >/dev/null 2>&1; do \
+		i=$$((i + 1)); [ $$i -lt $(READY_TRIES) ] || { echo " NGINX not answering after $(READY_TRIES) tries" >&2; exit 1; }; \
 		printf "."; sleep 2; \
 	done && echo " NGINX ✔"
 	@echo ""
@@ -534,7 +567,7 @@ fclean: clean
 re: clean all
 
 .PHONY: all up build rebuild setup hellish-fetch certs down stop start restart logs status ps \
-	snapshot re-web test-lab nodetool nodetool-present npm-web npm-api lock \
+	snapshot re-web test-lab test-site nodetool nodetool-present npm-web npm-api npm-site npm-world lock wiki \
 	42ctl 42ctl-present vault-init vault-signup vault-login vault-status vault-push vault-pull \
 	hellish-check \
 	test test-deep bench bench-full run_wp trust clean prune fclean re

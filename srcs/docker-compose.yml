@@ -36,6 +36,7 @@ services:
       dockerfile: Dockerfile
       additional_contexts:
         shell: ./shell
+        design: ./design
     image: wordpress:inception
     container_name: wordpress
     volumes:
@@ -97,6 +98,7 @@ services:
       dockerfile: Dockerfile
       additional_contexts:
         shell: ./shell
+        design: ./design
     image: staticsite:inception
     container_name: staticsite
     ports:
@@ -138,6 +140,10 @@ services:
       FTP_PASV_ADDRESS: ${FTP_PASV_ADDRESS}
     secrets:
       - source: ftp_password
+        mode: 0400
+      - source: server_crt
+        mode: 0444
+      - source: server_key
         mode: 0400
 
   adminer:
